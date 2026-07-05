@@ -1,5 +1,15 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/themrdemonized/xray-monolith)
 
+
+### Texture Eviction System — [PR #592](https://github.com/themrdemonized/xray-monolith/pull/592)
+Age-based LRU mid-session texture eviction for DX11/MT build. Prevents
+VRAM accumulation during play sessions by periodically unloading stale
+textures that haven't been used recently. Tunable via console variables:
+`r__tex_evict_enabled`, `r__tex_evict_age_frames`, `r__tex_evict_batch_size`,
+`r__tex_evict_interval`
+
+---
+
 # STALKER-Anomaly-modded-exes
 
 Here is list of exe files for Anomaly 1.5.3 that contains all engine patches by community required for some advanced mods to work.
