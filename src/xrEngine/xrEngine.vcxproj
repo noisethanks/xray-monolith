@@ -431,8 +431,9 @@
     </Link>
     <PostBuildEvent>
       <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
-xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
-      <Message>Deploying TBB scalable allocator DLLs</Message>
+xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"
+xcopy /D /Y "$(xrSdkDir)binaries\tbb12.dll" "$(OutDir)"</Command>
+      <Message>Deploying TBB runtime DLLs</Message>
     </PostBuildEvent>
     <Manifest>
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
@@ -475,8 +476,9 @@ xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
-xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
-      <Message>Deploying TBB scalable allocator DLLs</Message>
+xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"
+xcopy /D /Y "$(xrSdkDir)binaries\tbb12.dll" "$(OutDir)"</Command>
+      <Message>Deploying TBB runtime DLLs</Message>
     </PostBuildEvent>
     <Manifest>
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
@@ -697,8 +699,9 @@ xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
-xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
-      <Message>Deploying TBB scalable allocator DLLs</Message>
+xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"
+xcopy /D /Y "$(xrSdkDir)binaries\tbb12.dll" "$(OutDir)"</Command>
+      <Message>Deploying TBB runtime DLLs</Message>
     </PostBuildEvent>
     <Manifest>
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
