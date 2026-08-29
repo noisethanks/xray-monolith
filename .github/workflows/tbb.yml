@@ -97,7 +97,8 @@ jobs:
     - name: Publish release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.tag.outputs.tag }}
-        name: TBB test build ${{ steps.tag.outputs.tag }}
-        prerelease: true
+        tag_name: tbb-integration-test
+        name: "MT exes 2026.8.17 with oneTBB allocator and scheduler integration"
+        prerelease: false
+        draft: false
         files: ./release-assets/*.zip
