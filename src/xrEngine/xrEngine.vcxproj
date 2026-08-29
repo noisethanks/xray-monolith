@@ -430,9 +430,10 @@
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
+      <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbb12.dll" "$(OutDir)"
+xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
 xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
-      <Message>Deploying TBB scalable allocator DLLs</Message>
+      <Message>Deploying TBB runtime and allocator DLLs</Message>
     </PostBuildEvent>
     <Manifest>
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
@@ -474,9 +475,10 @@ xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
+      <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbb12.dll" "$(OutDir)"
+xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
 xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
-      <Message>Deploying TBB scalable allocator DLLs</Message>
+      <Message>Deploying TBB runtime and allocator DLLs</Message>
     </PostBuildEvent>
     <Manifest>
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
@@ -696,9 +698,10 @@ xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
+      <Command>xcopy /D /Y "$(xrSdkDir)binaries\tbb12.dll" "$(OutDir)"
+xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc.dll" "$(OutDir)"
 xcopy /D /Y "$(xrSdkDir)binaries\tbbmalloc_proxy.dll" "$(OutDir)"</Command>
-      <Message>Deploying TBB scalable allocator DLLs</Message>
+      <Message>Deploying TBB runtime and allocator DLLs</Message>
     </PostBuildEvent>
     <Manifest>
       <AdditionalManifestFiles>$(SolutionDir)xrEngine\as-invoker-manifest-part.xml;%(AdditionalManifestFiles)</AdditionalManifestFiles>
