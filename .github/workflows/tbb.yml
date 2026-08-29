@@ -1,0 +1,103 @@
+name: TBB Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (leave blank to auto-generate)"
+        required: false
+        default: ""
+
+env:
+  SOLUTION_FILE_PATH: src/engine-vs2022.sln
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-job
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        buildconf: ["DX11","DX11-AVX"]
+
+    steps:
+    - name: Configure Pagefile
+      uses: al-cheb/configure-pagefile-action@v1.3
+      with:
+        minimum-size: 8GB
+        maximum-size: 8GB
+        disk-root: "C:"
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Init submodules
+      uses: snickerbockers/submodules-init@v4
+
+    - name: setup-msbuild
+      uses: microsoft/setup-msbuild@v1.3.1
+      with:
+        msbuild-architecture: "x64"
+
+    - name: Build ${{matrix.buildconf}}
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /p:Configuration=${{matrix.buildconf}} ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Zip Exe + TBB runtime DLLs
+      run: |
+        cd ./_build/_game/bin_dbg
+        Compress-Archive -DestinationPath "tbb_test_${{matrix.buildconf}}.zip" -Path @("*.exe", "tbb12.dll", "tbbmalloc.dll", "tbbmalloc_proxy.dll")
+
+    - name: Upload Exe + TBB runtime DLLs
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: ${{matrix.buildconf}}_tbb_test_build
+        path: ./_build/_game/bin_dbg/tbb_test_${{matrix.buildconf}}.zip
+        if-no-files-found: "error"
+        retention-days: 90
+
+    - name: Zip PDB
+      run: |
+        cd ./_build/_game/bin_dbg
+        Compress-Archive -DestinationPath "tbb_test_${{matrix.buildconf}}_pdb.zip" -Path "./*.pdb"
+
+    - name: Upload PDB
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: ${{matrix.buildconf}}_pdb
+        path: ./_build/_game/bin_dbg/*.zip
+        if-no-files-found: "error"
+        retention-days: 90
+
+  release:
+    name: release-job
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "*_tbb_test_build"
+        path: ./release-assets
+        merge-multiple: true
+
+    - name: Determine tag
+      id: tag
+      run: |
+        if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+          echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "tag=tbb-test-$(date +%Y%m%d)-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Publish release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: TBB test build ${{ steps.tag.outputs.tag }}
+        prerelease: true
+        files: ./release-assets/*.zip
