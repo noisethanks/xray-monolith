@@ -1,5 +1,28 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/themrdemonized/xray-monolith)
 
+# Test branch for: 
+- https://github.com/noisethanks/xray-monolith/tree/feature/tbb_vendor
+- https://github.com/noisethanks/xray-monolith/tree/feature/tbb_scheduler
+- https://github.com/noisethanks/xray-monolith/tree/feature/tbb_allocator
+
+These branches implement independent concurrency changes, either could ship without the other but both depend on feature/tbb_vendor.
+
+## Task scheduler: PPL → oneTBB
+_thread_types.h moves off Microsoft PPL (<ppl.h>, concurrency::) onto oneTBB for task_group, concurrent_unordered_map, concurrent_vector, parallel_for, parallel_for_each, and parallel_sort. PPL is Windows/MSVC-only and effectively stagnant. oneTBB is under active development (governance moved to the UXL Foundation in 2023) and its work-stealing scheduler generally scales better past a handful of cores. 
+
+In addition, tbb::task_group's destructor requires an explicit wait() before destruction, or it throws, a stricter contract than PPL's, which only threw a forgotten-wait diagnostic (missing_wait) and stayed silent during stack unwinding. That's why plain tbb::task_group couldn't back IGame_Level, CRender, or CLevel, which override noexcept base destructors. xr_task_group wraps it, draining on destruction and catching whatever wait() throws. That restores the noexcept contract and turns a task exception that would otherwise escape the destructor, risking std::terminate() during unwinding, into a logged failure instead, more observable than PPL's silent-during-unwinding behavior.
+
+## Allocator: CRT → tbbmalloc
+x_ray.cpp pulls in tbbmalloc_proxy, which overrides malloc/free/new/delete process-wide at CRT init. No code has to call into TBB for this to apply, it's a drop-in replacement for the whole binary's heap.
+
+## Runtime impact
+The allocator swap is the one likely to actually show up in a profile. tbbmalloc is a scalable, per-thread-caching allocator built to cut lock contention and false sharing on multithreaded alloc/free traffic, and GAMMA/Anomaly's allocation pattern under modded object and texture counts is exactly that shape. Expect fewer allocator-contention stalls, most visible around streaming-heavy moments like level transitions or NPC-count spikes. The scheduler swap is a maintenance and forward-compat move rather than a performance one. Same API surface, so existing parallel_for/task_group call sites shouldn't behave differently on their own. The payoff there is later, if something ends up leaning on oneTBB's broader feature set (flow graph, etc.) that PPL never had.
+
+## Installation
+1. If you haven't, install the upstream 2026.8.17 MT-TEST exes. https://github.com/themrdemonized/xray-monolith/releases
+2. Download either the DX11 or DX11AVX release from this repository releases.
+3. Extract into your anomaly/bin directory, overwriting files if requested.
+
 # STALKER-Anomaly-modded-exes
 
 Here is list of exe files for Anomaly 1.5.3 that contains all engine patches by community required for some advanced mods to work.
