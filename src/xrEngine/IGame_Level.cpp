@@ -40,6 +40,14 @@ IGame_Level::~IGame_Level()
 
 	if (Core.ParamsData.test(ECoreParams::nes_texture_storing))
 		Device.m_pRender->ResourcesStoreNecessaryTextures();
+
+	// Drain queued texture loads before the level is torn down. Tasks on this group
+	// capture a raw CTexture* and read the "$level$" path through FS.exist(); nothing
+	// else waits on it. Must come after ResourcesStoreNecessaryTextures() above, since
+	// that call goes through _CreateTexture() and enqueues more work onto this group.
+	extern xr_task_group textures_load_tasks;
+	textures_load_tasks.wait();
+
 	xr_delete(pLevel);
 
 	// Render-level unload
