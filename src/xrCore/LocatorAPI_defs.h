@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "xrSyncronize.h"
+
 enum FS_List
 {
 	FS_ListFiles = (1 << 0),
@@ -29,6 +31,13 @@ public:
 	LPSTR m_DefExt;
 	LPSTR m_FilterCaption;
 	Flags32 m_Flags;
+private:
+	// Guards the m_Path / m_Root / m_Add pointers against replacement while another
+	// thread is dereferencing them. _set() runs on the main thread during a level
+	// transition; _update() runs on texture-loader worker threads for every file
+	// lookup. Shared for reads (hot path), exclusive for the free + reassign.
+	// mutable: _update() is const.
+	mutable xrSRWLock m_PathLock;
 public:
 	FS_Path(LPCSTR _Root, LPCSTR _Add, LPCSTR _DefExt = 0, LPCSTR _FilterString = 0, u32 flags = 0);
 	FS_Path(const FS_Path&) = delete;

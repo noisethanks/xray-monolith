@@ -97,6 +97,9 @@ void FS_Path::_set(LPCSTR add)
 	append_path_separator(temp, sizeof(temp));
 	LPSTR duplicated_path = xr_strdup_lwr(temp);
 
+	// Publish both pointers under the lock: _update() readers on worker threads
+	// dereference m_Path, and this is the only place it is ever freed at runtime.
+	xrSRWLockGuard guard(m_PathLock);
 	xr_free(m_Add);
 	m_Add = duplicated_add;
 	xr_free(m_Path);
@@ -117,6 +120,7 @@ void FS_Path::_set_root(LPCSTR root)
 	append_path_separator(temp, sizeof(temp));
 	LPSTR duplicated_path = xr_strdup_lwr(temp);
 
+	xrSRWLockGuard guard(m_PathLock);
 	xr_free(m_Root);
 	m_Root = duplicated_root;
 
@@ -130,7 +134,19 @@ LPCSTR FS_Path::_update(string_path& dest, LPCSTR src) const
 	R_ASSERT(src);
 	string_path temp;
 	xr_strcpy(temp, sizeof(temp), src);
-	strconcat(sizeof(dest), dest, m_Path, temp);
+
+	// Snapshot m_Path under the lock instead of concatenating under it. Without the
+	// lock, _set() can free m_Path mid-copy and strconcat walks freed heap looking
+	// for a terminator, which surfaces as a strconcat buffer-overflow fatal. The
+	// concat itself stays outside: on overflow it calls Debug.fatal, whose handler
+	// does its own FS work and would re-enter this lock. m_Path is always built from
+	// a string_path, so it cannot overflow the snapshot.
+	string_path base;
+	{
+		xrSRWLockGuard guard(m_PathLock, true);
+		xr_strcpy(base, sizeof(base), m_Path);
+	}
+	strconcat(sizeof(dest), dest, base, temp);
 	return xr_strlwr(dest);
 }
 
