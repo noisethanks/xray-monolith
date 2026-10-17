@@ -1,10 +1,15 @@
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/themrdemonized/xray-monolith)
 
-## Contributions
+## Upstream Contributions
+### Features
 - Texture eviction: [#592](https://github.com/themrdemonized/xray-monolith/pull/592)
+### Fixes
 - EvictStalledTextures() race condition [#604](https://github.com/themrdemonized/xray-monolith/pull/604)
-
-
+- Fix: share the open-file-tracking lock across calls [#707](https://github.com/themrdemonized/xray-monolith/pull/707)
+- Fix: snapshot m_textures under creationGuard before iterating [#706](https://github.com/themrdemonized/xray-monolith/pull/706)
+- Fix: real join + lock for CTextureDescrMngr's THM loader threads [#705](https://github.com/themrdemonized/xray-monolith/pull/705)
+- Fix use-after-free in vid_modes_string (get_resolutions) [#698](https://github.com/themrdemonized/xray-monolith/pull/698)
+- Fix/thread safety bullet particle [#660](https://github.com/themrdemonized/xray-monolith/pull/660)
 # STALKER-Anomaly-modded-exes
 
 Here is list of exe files for Anomaly 1.5.3 that contains all engine patches by community required for some advanced mods to work.
