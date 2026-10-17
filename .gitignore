@@ -49,3 +49,5 @@ compressor/mod/
 !/sdk/libraries/x64/tbb12.lib
 !/sdk/libraries/x64/tbbmalloc.lib
 !/sdk/libraries/x64/tbbmalloc_proxy.lib
+
+__pycache__/
