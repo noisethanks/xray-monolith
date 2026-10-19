@@ -19,12 +19,9 @@
 #define		PRIORITY_NORMAL	8
 #define		PRIORITY_LOW	4
 
-// Background PPL task group used to (re)load textures off the calling thread.
-// Defined in dx10ResourceManager_Resources.cpp; CResourceManager::_CreateTexture
-// dispatches brand-new textures' initial Load() through it whenever the device is
-// ready. apply_load() below reuses the same queue for evicted textures instead of
-// calling Load() inline.
-extern xr_task_group textures_load_tasks;
+// CResourceManager::_CreateTexture queues brand-new textures' initial Load() through
+// texture_load_queue() (ResourceManager.cpp) whenever the device is ready. apply_load()
+// below reuses the same queue for evicted textures instead of calling Load() inline.
 
 void resptrcode_texture::create(LPCSTR _name)
 {
@@ -173,10 +170,7 @@ void CTexture::apply_load(u32 dwStage)
             Msg("* [TexReload] queued: %s", cName.c_str());
 #endif // DEBUG
             CTexture* self = this;
-            textures_load_tasks.run([self]()
-            {
-                self->Load();
-            });
+            texture_load_queue(self);
         }
         // Bind nothing (or whatever is already there, e.g. mid-flight from an
         // in-flight Load()) for this call. apply_normal() waits out any in-flight

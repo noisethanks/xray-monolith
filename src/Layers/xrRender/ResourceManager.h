@@ -15,6 +15,13 @@ struct lua_State;
 class dx10ConstantBuffer;
 
 // defs
+class CTexture;
+
+// Queue an asynchronous CTexture::Load(), capped by r__texture_upload_threads
+void texture_load_queue(CTexture* texture);
+// CTexture::Load() with process-wide in-flight/peak counting and -dbg progress lines
+void texture_load_counted(CTexture* texture);
+
 class ECORE_API CResourceManager
 {
 private:
@@ -231,6 +238,15 @@ public:
 	void DeleteGeom(const SGeometry* VS);
 	void DeferredLoad(BOOL E) { bDeferredLoad = E; }
 	void DeferredUpload();
+	// DeferredUpload instrumentation (-dbg): process and texture memory, in MiB
+	struct upload_memory_stats
+	{
+		u64 private_mib = 0;
+		u64 working_set_mib = 0;
+		u64 texture_mib = 0;
+	};
+	static void sample_process_memory(upload_memory_stats& stats);
+	void sample_upload_memory(upload_memory_stats& stats);
 	void DeferredUnload();
 	void UnloadAllTexturesOnLevelUnload();
 	void Evict();

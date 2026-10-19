@@ -454,7 +454,6 @@ void CResourceManager::DeleteGeom(const SGeometry* Geom)
 }
 
 //--------------------------------------------------------------------------------------------------------------
-xr_task_group textures_load_tasks;
 CTexture* CResourceManager::_CreateTexture(LPCSTR _Name)
 {
 	// DBG_VerifyTextures	();
@@ -481,10 +480,7 @@ CTexture* CResourceManager::_CreateTexture(LPCSTR _Name)
 		T->Preload();
 		if (Device.b_is_Ready)
 		{
-			textures_load_tasks.run([=]()
-			{
-				T->Load();
-			});
+			texture_load_queue(T);
 		}
 		return T;
 	}

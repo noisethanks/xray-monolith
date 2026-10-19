@@ -15,6 +15,9 @@
 #include "blenders\blender.h"
 #include "blenders\blender_recorder.h"
 #include "../../xrCore/_thread_types.h"
+#include <tbb/task_arena.h>
+#include <psapi.h>
+#pragma comment(lib, "psapi.lib")
 
 //	Already defined in Texture.cpp
 void fix_texture_name(LPSTR fn);
@@ -381,6 +384,82 @@ void CResourceManager::Delete(const Shader* S)
 	Msg("! ERROR: Failed to find complete shader");
 }
 
+// Asynchronous texture loads: new textures from _CreateTexture and reloads from
+// CTexture::apply_load. Nothing waits on these; callers that need a texture spin
+// on its bLoading flag, which Load() only sets once it is running. A queued load
+// that hasn't started yet is never waited on, which is what makes a capped arena
+// safe here.
+namespace texture_loads
+{
+	// Unbounded, as before: used when r__texture_upload_threads is 0
+	static xr_task_group group;
+	// Used when r__texture_upload_threads > 0. Workers only (no slot reserved for
+	// a master thread), since tasks are enqueued and nobody joins the arena.
+	static std::unique_ptr<tbb::task_arena> arena;
+	static int arena_threads = 0;
+	static xrCriticalSection submit_lock;
+	// Queued or running, in the group or the arena
+	static std::atomic<int> pending{0};
+
+	// Process-wide accounting, shared with DeferredUpload
+	static std::atomic<int> in_flight{0};
+	static std::atomic<int> peak_in_flight{0};
+	static std::atomic<u32> completed{0};
+}
+
+void texture_load_counted(CTexture* texture)
+{
+	using namespace texture_loads;
+	const int now = in_flight.fetch_add(1) + 1;
+	int peak = peak_in_flight.load();
+	while (now > peak && !peak_in_flight.compare_exchange_weak(peak, now)) {}
+
+	texture->Load();
+
+	const int remaining = in_flight.fetch_sub(1) - 1;
+	// Each count goes to exactly one thread, so each progress line is logged once
+	const u32 done = completed.fetch_add(1) + 1;
+	if (done % 250 == 0 && Core.isDebug())
+	{
+		CResourceManager::upload_memory_stats mem_now;
+		CResourceManager::sample_process_memory(mem_now);
+		Msg("* TexLoad progress: done %u, in-flight now %d, peak %d, private bytes %llu MiB", done, remaining,
+		    peak_in_flight.load(), mem_now.private_mib);
+	}
+}
+
+void texture_load_queue(CTexture* texture)
+{
+	using namespace texture_loads;
+	xrCriticalSectionGuard guard(submit_lock);
+
+	// r__texture_upload_threads is applied when nothing is queued or running
+	// (between level loads), so no task outlives the arena it was queued in
+	const int wanted = std::max(ps_r__texture_upload_threads, 0);
+	if (wanted != arena_threads && pending.load() == 0)
+	{
+		arena.reset();
+		if (wanted > 0)
+			arena = std::make_unique<tbb::task_arena>(wanted, 0);
+		arena_threads = wanted;
+		if (wanted > 0)
+			Msg("* TexLoad: async texture loads capped at %d threads", wanted);
+		else
+			Msg("* TexLoad: async texture loads unlimited");
+	}
+
+	pending.fetch_add(1);
+	auto task = [texture]()
+	{
+		texture_load_counted(texture);
+		texture_loads::pending.fetch_sub(1);
+	};
+	if (arena)
+		arena->enqueue(task);
+	else
+		group.run(task);
+}
+
 void CResourceManager::DeferredUpload()
 {
 	if (!RDEVICE.b_is_Ready) return;
@@ -402,12 +481,85 @@ void CResourceManager::DeferredUpload()
 			textures.push_back(pair.second);
 	}
 
-	xr_parallel_foreach(textures.begin(), textures.end(), [](CTexture* texture)
-	{
-		texture->Load();
-	});
+	// -dbg only: how many Load() calls overlap, and what the upload costs in memory
+	const bool instrument = Core.isDebug();
+	// Peak for this upload's summary; the process-wide count and progress lines
+	// come from texture_load_counted
+	std::atomic<int> in_flight{0};
+	std::atomic<int> peak_in_flight{0};
+	const u32 total = u32(textures.size());
+	// r__texture_upload_threads > 0 caps the upload to that many threads
+	const int upload_threads = ps_r__texture_upload_threads;
 
-	Msg("texture loading time: %d", timer.GetElapsed_ms());
+	upload_memory_stats mem_before, mem_after;
+	if (instrument)
+	{
+		sample_upload_memory(mem_before);
+		Msg("* DeferredUpload start: %u textures, private bytes %llu MiB, working set %llu MiB, upload threads %d%s",
+		    total, mem_before.private_mib, mem_before.working_set_mib, upload_threads,
+		    upload_threads > 0 ? "" : " (unlimited)");
+	}
+
+	auto load = [&](CTexture* texture)
+	{
+		if (instrument)
+		{
+			const int now = in_flight.fetch_add(1) + 1;
+			int peak = peak_in_flight.load();
+			while (now > peak && !peak_in_flight.compare_exchange_weak(peak, now)) {}
+		}
+		texture_load_counted(texture);
+		if (instrument)
+			in_flight.fetch_sub(1);
+	};
+
+	if (upload_threads > 0)
+	{
+		tbb::task_arena arena(upload_threads);
+		arena.execute([&]
+		{
+			xr_parallel_foreach(textures.begin(), textures.end(), load);
+		});
+	}
+	else
+		xr_parallel_foreach(textures.begin(), textures.end(), load);
+
+	const u32 elapsed_ms = timer.GetElapsed_ms();
+	Msg("texture loading time: %d", elapsed_ms);
+
+	if (instrument)
+	{
+		sample_upload_memory(mem_after);
+		Msg("* DeferredUpload: %u textures, peak in-flight %d, private bytes %llu -> %llu MiB, time %u ms, "
+		    "working set %llu -> %llu MiB, texture memory %llu -> %llu MiB, upload threads %d%s",
+		    total, peak_in_flight.load(), mem_before.private_mib, mem_after.private_mib, elapsed_ms,
+		    mem_before.working_set_mib, mem_after.working_set_mib, mem_before.texture_mib, mem_after.texture_mib,
+		    upload_threads, upload_threads > 0 ? "" : " (unlimited)");
+	}
+}
+
+// Process memory only: safe to call from the upload workers (takes no engine locks)
+void CResourceManager::sample_process_memory(upload_memory_stats& stats)
+{
+	PROCESS_MEMORY_COUNTERS_EX counters = {};
+	counters.cb = sizeof(counters);
+	if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&counters, sizeof(counters)))
+	{
+		stats.private_mib = counters.PrivateUsage >> 20;
+		stats.working_set_mib = counters.WorkingSetSize >> 20;
+	}
+}
+
+void CResourceManager::sample_upload_memory(upload_memory_stats& stats)
+{
+	sample_process_memory(stats);
+
+	u32 m_base, c_base, m_lmaps, c_lmaps;
+	{
+		xrCriticalSectionGuard guard(creationGuard);
+		_GetMemoryUsage(m_base, c_base, m_lmaps, c_lmaps);
+	}
+	stats.texture_mib = (u64(m_base) + m_lmaps) >> 20;
 }
 
 void CResourceManager::DeferredUnload()

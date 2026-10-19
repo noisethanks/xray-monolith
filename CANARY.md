@@ -45,3 +45,16 @@ Based on upstream `all-in-one-vs2022-wpo-mt` at `871e2491`.
   `-dbg`, `dbg_crash_test <n>` makes n TBB workers fault at once,
   `dbg_crash_test main` faults on the main thread, and adding `hang` makes the
   crash save hang to test the watchdog (`dbg_crash_test main hang`).
+- **Scheduler and upload instrumentation.** Startup logs "* TBB: version <runtime
+  version>, arena concurrency <n>, hardware threads <n>". Every texture load is
+  counted process-wide: the async loads queued by `_CreateTexture` and by
+  `CTexture::apply_load` reloads (where level-load textures actually load), and
+  `DeferredUpload`. With `-dbg`, a "* TexLoad progress" line is logged every 250
+  completed loads (done, in-flight now, peak, private bytes), and
+  `DeferredUpload` logs a start line and a summary line (texture count, peak
+  concurrent loads, private bytes, working set and texture memory before ->
+  after, time, upload thread cap). New console variable
+  `r__texture_upload_threads` (default 0 = unlimited, today's behavior) caps
+  both: the async loads run in a dedicated `tbb::task_arena` of that size, and
+  `DeferredUpload` runs its loop in one. A change applies to the async loads
+  once none are queued or running, i.e. by the next level load.

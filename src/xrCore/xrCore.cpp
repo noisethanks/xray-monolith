@@ -16,6 +16,9 @@
 #include<fstream>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <tbb/version.h>
+#include <tbb/task_arena.h>
 
 XRCORE_API xrCore Core;
 extern XRCORE_API u32 build_id;
@@ -82,6 +85,9 @@ void xrCore::_initialize(LPCSTR _ApplicationName, xrLogger::LogCallback cb, BOOL
 		xrLogger::InitLog();
 		Msg("* %s", xr_build_identity());
 		thread_tag_observe_tbb_workers();
+		// The observer above has initialized the main thread's arena
+		Msg("* TBB: version %s, arena concurrency %d, hardware threads %u", TBB_runtime_version(),
+		    tbb::this_task_arena::max_concurrency(), std::thread::hardware_concurrency());
 		_initialize_cpu();
 
 		rtc_initialize();

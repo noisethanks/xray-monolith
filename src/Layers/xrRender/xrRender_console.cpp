@@ -531,6 +531,7 @@ float ps_r2_gloss_min = 0.0f;
 // demonized
 BOOL occq_debug = FALSE;
 BOOL r_blood_decals_on_objects = FALSE;
+int ps_r__texture_upload_threads = 0; // 0 = unlimited
 
 int opt_static = 2;
 int opt_dynamic = 2;
@@ -1366,6 +1367,7 @@ void xrRender_initconsole()
 	CMD2(CCC_tf_MipBias, "r__tf_mipbias", &ps_r__tf_Mipbias); // {-3 +3}
 
 	CMD4(CCC_Integer, "r__blood_decals_on_objects", &r_blood_decals_on_objects, 0, 1);
+	CMD4(CCC_Integer, "r__texture_upload_threads", &ps_r__texture_upload_threads, 0, 256);
 
 	// R1
 	CMD4(CCC_Float, "r1_ssa_lod_a", &ps_r1_ssaLOD_A, 16, 96);
