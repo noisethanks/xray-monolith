@@ -71,3 +71,30 @@ Based on upstream `all-in-one-vs2022-wpo-mt` at `871e2491`.
   GIFs, `.seq` frames and `$user$` textures never used the staging path and are
   unchanged. It applies to textures loaded after the change; `r__no_ram_textures`
   / `-noramtex` still turns staging off for every load as before.
+- **B6: file index fixes.** Cherry-picked from `fix/locator-m-files`.
+  `unload_archive` now unregisters every file from the archive, not just the
+  first. The file index (`m_files`) is guarded by a reader/writer lock against
+  archive mount/unmount racing with lookups from loader threads. The
+  multiplayer auth hash now hashes outside that lock, over the same files. With
+  `-dbg`, startup logs "* FS auth hash: <hash> (<ms> ms)", so the value can be
+  compared across builds against the same gamedata. A thread that takes the
+  lock while already holding it asserts ("m_files_lock re-entered on the same
+  thread"). Known gap, unchanged: lookups return pointers into the index that
+  callers keep after the lock is released.
+- **Sam's detail grass instancing.** `sam/detail-grass-instancing-mt`
+  (`da03c830`), merged as one `--no-ff` merge commit, so
+  `git revert -m 1 <merge>` drops it. DX10/DX11 grass is drawn instanced and
+  batched.
+
+### Release notes
+
+- **Sam's grass needs his matching shaders.** The DX10/DX11 grass instancing
+  requires modified detail shaders. Install Sam's matching shaders with this
+  build.
+- **Proton: heavy maps can run out of host memory during cold loads.**
+  Lowering texture quality helps. `r__no_ram_textures 1` avoids the crash but
+  can drop framerate badly.
+- **Delete old TBB DLLs.** Remove any `tbb.dll`, `tbbmalloc.dll` and
+  `tbbmalloc_proxy.dll` from the bin folder. Only `tbb12.dll` is needed.
+- **Crash saves are only written for crashes on the main thread.** A crash on
+  another thread still writes the log and minidump, but skips the save.
