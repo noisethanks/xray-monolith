@@ -80,6 +80,7 @@ void xrCore::_initialize(LPCSTR _ApplicationName, xrLogger::LogCallback cb, BOOL
 		DUMP_PHASE;
 
 		xrLogger::InitLog();
+		Msg("* %s", xr_build_identity());
 		_initialize_cpu();
 
 		rtc_initialize();

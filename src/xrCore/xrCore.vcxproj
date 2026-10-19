@@ -143,6 +143,12 @@
     <OutDir>$(xrGameDir)bin_dbg\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(xrIntDir)$(ProjectName)\</IntDir>
   </PropertyGroup>
+  <ItemDefinitionGroup>
+    <PreBuildEvent>
+      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)build_identity.ps1" -OutFile "$(ProjectDir)build_identity.h"</Command>
+      <Message>Generating build_identity.h</Message>
+    </PreBuildEvent>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>.;$(SolutionDir)3rd party\optick-git\src;$(XRAY_16X_LIBS);$(xrSdkDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -552,6 +558,7 @@
       <WarningLevel Condition="'$(Configuration)|$(Platform)'=='Release-AVX|x64'">TurnOffAllWarnings</WarningLevel>
     </ClCompile>
     <ClCompile Include="clsid.cpp" />
+    <ClCompile Include="build_identity.cpp" />
     <ClCompile Include="cpuid.cpp" />
     <ClCompile Include="crc32.cpp" />
     <ClCompile Include="dump_string.cpp" />
@@ -655,10 +662,14 @@
     <ClCompile Include="DateTime.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="build_identity.ps1" />
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="..\3rd party\fastdelegate\fastdelegate.h" />
     <ClInclude Include="..\3rd party\robin_hood\robin_hood.h" />
     <ClInclude Include="..\3rd party\stackwalker\include\StackWalker.h" />
     <ClInclude Include="..\build_config_defines.h" />
+    <ClInclude Include="build_identity.h" />
     <ClInclude Include="blackbox\BugslayerUtil.h" />
     <ClInclude Include="blackbox\CrashHandler.h" />
     <ClInclude Include="blackbox\DiagAssert.h" />

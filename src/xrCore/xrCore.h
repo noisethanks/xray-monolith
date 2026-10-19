@@ -308,6 +308,9 @@ DEFINE_VECTOR(xr_rtoken, RTokenVec, RTokenVecIt);
 #include "net_utils.h"
 #include "xrParams.h"
 
+// Build identity line for logs and crash reports (see build_identity.ps1)
+XRCORE_API LPCSTR xr_build_identity();
+
 #include "_thread_types.h"
 
 // CRC32 functions
