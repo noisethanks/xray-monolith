@@ -141,6 +141,7 @@ void xrDebug::gather_info(const char* expression, const char* description, const
 		if (!i)
 			buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%sFATAL ERROR%s%s", endline,
 			                     endline, endline);
+		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "* %s%s", xr_build_identity(), endline);
 		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%sExpression    : %s%s", prefix,
 		                     expression, endline);
 		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%sFunction      : %s%s", prefix,
@@ -735,7 +736,15 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
                 // write the dump
                 MINIDUMP_TYPE dump_flags = MINIDUMP_TYPE(MiniDumpNormal | MiniDumpFilterMemory | MiniDumpScanMemory );
 
-                BOOL bOK = pDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, dump_flags, &ExInfo, NULL, NULL );
+                MINIDUMP_USER_STREAM comment;
+                comment.Type = CommentStreamA;
+                comment.Buffer = (PVOID)xr_build_identity();
+                comment.BufferSize = xr_strlen(xr_build_identity()) + 1;
+                MINIDUMP_USER_STREAM_INFORMATION user_streams;
+                user_streams.UserStreamCount = 1;
+                user_streams.UserStreamArray = &comment;
+
+                BOOL bOK = pDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, dump_flags, &ExInfo, &user_streams, NULL );
                 if (bOK)
                 {
                     xr_sprintf( szScratch, "Saved dump file to '%s'", szDumpPath );
@@ -805,6 +814,8 @@ LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
     xrLogger::SetImmediateMode(true);
 	string256 error_message;
 	format_message(error_message, sizeof(error_message));
+
+	Msg("* %s", xr_build_identity());
 
 	CONTEXT save = *pExceptionInfo->ContextRecord;
 	//    BuildStackTrace(pExceptionInfo);

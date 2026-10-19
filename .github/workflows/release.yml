@@ -1,0 +1,139 @@
+name: Canary Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_ref:
+        description: "Branch, tag or commit SHA to build"
+        required: true
+        default: "canary_10_19"
+
+env:
+  SOLUTION_FILE_PATH: src/engine-vs2022.sln
+  CANARY_TAG: canary-${{ github.run_number }}
+
+permissions:
+  contents: write
+
+jobs:
+  # Resolve build_ref to one commit up front, so every build job and the release
+  # tag all point at the same SHA even if the branch moves during the run.
+  resolve:
+    name: resolve-ref
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+
+    steps:
+    - name: Checkout ${{ inputs.build_ref }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.build_ref }}
+
+    - name: Resolve SHA
+      id: sha
+      run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build-job
+    needs: resolve
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        buildconf: ["DX11", "DX11-AVX"]
+
+    env:
+      # Read by src/xrCore/build_identity.ps1
+      CANARY_NUMBER: ${{ github.run_number }}
+      XR_BUILD_BRANCH: ${{ inputs.build_ref }}
+
+    steps:
+    - name: Configure Pagefile
+      uses: al-cheb/configure-pagefile-action@v1.3
+      with:
+        minimum-size: 8GB
+        maximum-size: 8GB
+        disk-root: "C:"
+
+    - name: Checkout ${{ needs.resolve.outputs.sha }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.resolve.outputs.sha }}
+
+    - name: Init submodules
+      uses: snickerbockers/submodules-init@v4
+
+    - name: setup-msbuild
+      uses: microsoft/setup-msbuild@v1.3.1
+      with:
+        msbuild-architecture: "x64"
+
+    - name: Build ${{matrix.buildconf}}
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: msbuild /p:Configuration=${{matrix.buildconf}} ${{env.SOLUTION_FILE_PATH}}
+
+    # The scheduler needs tbb12.dll only. The tbbmalloc allocator is not part of
+    # this build, so its DLLs must never ship.
+    - name: Zip Exe + TBB runtime DLL
+      run: |
+        cd ./_build/_game/bin_dbg
+        $zip = "${{env.CANARY_TAG}}_${{matrix.buildconf}}.zip"
+        Compress-Archive -DestinationPath $zip -Path @("*.exe", "tbb12.dll")
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $entries = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip)).Entries.Name
+        $entries
+        if ($entries -like "tbbmalloc*") { throw "tbbmalloc DLL found in $zip" }
+        if ($entries -notcontains "tbb12.dll") { throw "tbb12.dll missing from $zip" }
+
+    - name: Upload Exe + TBB runtime DLL
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: ${{matrix.buildconf}}_canary_build
+        path: ./_build/_game/bin_dbg/${{env.CANARY_TAG}}_${{matrix.buildconf}}.zip
+        if-no-files-found: "error"
+        retention-days: 90
+
+    - name: Zip PDB
+      run: |
+        cd ./_build/_game/bin_dbg
+        Compress-Archive -DestinationPath "${{env.CANARY_TAG}}_${{matrix.buildconf}}_pdb.zip" -Path "./*.pdb"
+
+    - name: Upload PDB
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: ${{matrix.buildconf}}_canary_pdb
+        path: ./_build/_game/bin_dbg/${{env.CANARY_TAG}}_${{matrix.buildconf}}_pdb.zip
+        if-no-files-found: "error"
+        retention-days: 90
+
+  release:
+    name: release-job
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "*_canary_*"
+        path: ./release-assets
+        merge-multiple: true
+
+    - name: Check release assets
+      run: |
+        ls -l ./release-assets
+        for z in ./release-assets/*.zip; do
+          if unzip -Z1 "$z" | grep -qi '^tbbmalloc'; then
+            echo "tbbmalloc DLL found in $z"; exit 1
+          fi
+        done
+
+    - name: Publish release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.CANARY_TAG }}
+        target_commitish: ${{ needs.resolve.outputs.sha }}
+        name: Canary ${{ github.run_number }} (${{ inputs.build_ref }})
+        prerelease: true
+        files: ./release-assets/*.zip
