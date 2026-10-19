@@ -256,6 +256,9 @@ void xrLogger::FlushLog()
 {
 	theLogger->bFlushRequested = true;
 	theLogger->UnpauseLogging();
+	// Immediate mode just wrote the queue on this thread: get it to disk before returning
+	if (theLogger->bImmediateMode)
+		theLogger->InternalFlushLog();
 }
 
 void xrLogger::SetImmediateMode(bool enable)

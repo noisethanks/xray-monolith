@@ -1366,6 +1366,29 @@ public:
 	}
 };
 
+class CCC_DbgCrashTest : public IConsole_Command
+{
+public:
+	CCC_DbgCrashTest(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = true; };
+
+	virtual void Execute(LPCSTR args)
+	{
+		string32 target = "4";
+		string32 mode = "";
+		if (args && *args)
+			sscanf(args, "%31s %31s", target, mode);
+		const bool on_main = !xr_strcmp(target, "main");
+		Debug.crash_test(on_main ? 0 : atoi(target), !xr_strcmp(mode, "hang"), on_main);
+	}
+
+	virtual void Info(TInfo& I)
+	{
+		xr_strcpy(I, "<n|main> [hang] - make n TBB workers fault at once (tests crash report serialization), "
+		             "or fault on the main thread (the only thread that crash-saves); "
+		             "hang makes the crash save never return (tests the save watchdog)");
+	}
+};
+
 class CCC_ClearLog : public IConsole_Command
 {
 public:
@@ -2869,6 +2892,9 @@ void CCC_RegisterCommands()
 	CMD1(CCC_ScriptCommand, "run_string");
 	CMD1(CCC_TimeFactor, "time_factor");
 #endif // DEBUG
+
+	if (Core.isDebug())
+		CMD1(CCC_DbgCrashTest, "dbg_crash_test");
 
 	/* AVO: changing restriction to -dbg key instead of DEBUG */
 	//#ifndef MASTER_GOLD

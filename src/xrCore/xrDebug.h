@@ -73,6 +73,11 @@ public:
 	void backend(const char* reason, const char* expression, const char* argument0, const char* argument1,
 	             const char* file, int line, const char* function, bool& ignore_always);
 	void do_exit(const std::string& message);
+
+	// dbg_crash_test: makes `count` TBB workers fault at the same moment, or the
+	// calling thread with on_calling_thread. With hang_save, the crash save after
+	// the report never returns (tests the watchdog).
+	void crash_test(int count, bool hang_save = false, bool on_calling_thread = false);
 };
 
 // warning

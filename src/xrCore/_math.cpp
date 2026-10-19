@@ -12,6 +12,7 @@
 #include <mmsystem.h>
 
 #include "profiler.h"
+#include <tbb/task_scheduler_observer.h>
 
 // Initialized on startup
 XRCORE_API Fmatrix Fidentity;
@@ -363,6 +364,71 @@ void thread_name(const char* name)
 }
 #pragma pack(pop)
 
+static thread_local char g_thread_tag[64] = {};
+
+void thread_tag_set(const char* name)
+{
+	strncpy_s(g_thread_tag, name, _TRUNCATE);
+
+	// SetThreadDescription is Windows 10 1607+, so look it up at runtime
+	typedef HRESULT (WINAPI* SetThreadDescription_t)(HANDLE, PCWSTR);
+	static const auto set_description = (SetThreadDescription_t)GetProcAddress(
+		GetModuleHandleA("kernel32.dll"), "SetThreadDescription");
+	if (set_description)
+	{
+		wchar_t wide_name[sizeof(g_thread_tag)];
+		if (MultiByteToWideChar(CP_UTF8, 0, g_thread_tag, -1, wide_name, sizeof(g_thread_tag)))
+			set_description(GetCurrentThread(), wide_name);
+	}
+}
+
+static std::atomic<DWORD> g_main_thread_id{0};
+
+void thread_tag_set_main()
+{
+	g_main_thread_id.store(GetCurrentThreadId());
+	thread_tag_set("main");
+}
+
+bool thread_is_main()
+{
+	const DWORD main_id = g_main_thread_id.load();
+	return main_id != 0 && main_id == GetCurrentThreadId();
+}
+
+const char* thread_tag_get()
+{
+	return g_thread_tag[0] ? g_thread_tag : nullptr;
+}
+
+namespace
+{
+class thread_tag_observer final : public tbb::task_scheduler_observer
+{
+	std::atomic<int> m_next_worker{1};
+
+public:
+	void on_scheduler_entry(bool is_worker) override
+	{
+		// Workers leave and rejoin the arena all the time; tag each one once
+		if (!is_worker || g_thread_tag[0])
+			return;
+
+		string64 name;
+		xr_sprintf(name, "TBB worker %d", m_next_worker.fetch_add(1));
+		thread_tag_set(name);
+		PROF_START_THREAD(g_thread_tag);
+	}
+};
+}
+
+void thread_tag_observe_tbb_workers()
+{
+	// Never destroyed: TBB can still notify it while workers shut down at exit
+	static thread_tag_observer* observer = new thread_tag_observer();
+	observer->observe(true);
+}
+
 struct THREAD_STARTUP
 {
 	thread_t* entry;
@@ -375,6 +441,7 @@ void __cdecl thread_entry(void* _params)
 	// initialize
 	THREAD_STARTUP* startup = (THREAD_STARTUP*)_params;
 	thread_name(startup->name);
+	thread_tag_set(startup->name);
 	thread_t* entry = startup->entry;
 	void* arglist = startup->args;
 	_initialize_cpu_thread();
@@ -405,6 +472,7 @@ unsigned __stdcall thread_entry_ex(void* _params)
     // initialize
     THREAD_STARTUP* startup = (THREAD_STARTUP*)_params;
     thread_name(startup->name);
+    thread_tag_set(startup->name);
     thread_t* entry = startup->entry;
     void* arglist = startup->args;
     _initialize_cpu_thread();

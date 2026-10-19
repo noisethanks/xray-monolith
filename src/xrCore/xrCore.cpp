@@ -81,6 +81,7 @@ void xrCore::_initialize(LPCSTR _ApplicationName, xrLogger::LogCallback cb, BOOL
 
 		xrLogger::InitLog();
 		Msg("* %s", xr_build_identity());
+		thread_tag_observe_tbb_workers();
 		_initialize_cpu();
 
 		rtc_initialize();

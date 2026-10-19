@@ -55,6 +55,8 @@ static BOOL bException = FALSE;
 #endif // USE_BUG_TRAP
 
 #include <new.h> // for _set_new_mode
+#include <algorithm>
+#include <tbb/task_arena.h>
 #include <signal.h> // for signals
 
 #ifdef NO_BUG_TRAP //DEBUG
@@ -71,14 +73,193 @@ namespace crash_saving
 {
     void (*save_impl)() = nullptr;
 	BOOL enabled = TRUE;
+	// dbg_crash_test hang: the save never returns, to exercise the watchdog (-dbg only)
+	static bool debug_hang = false;
+
+	static bool debug_hang_active()
+	{
+		return debug_hang && Core.isDebug();
+	}
+
+	static bool pending()
+	{
+		return debug_hang_active() || (enabled && save_impl != nullptr);
+	}
 
     void save()
     {
+		if (debug_hang_active())
+		{
+			Msg("! dbg_crash_test: simulated crash save, never returns");
+			xrLogger::FlushLog();
+			for (;;)
+				Sleep(INFINITE);
+		}
+
         if (enabled && save_impl != nullptr)
         {
             (*save_impl)();
         }
     }
+}
+
+// Crash report serialization. The first thread to fault or hit a fatal error owns
+// the report. Any other thread that gets here while the report is being written is
+// counted and parked, so it can't let the process be torn down before the owner
+// finishes. A fault on the owner thread (inside the handler) terminates at once.
+namespace crash_claim
+{
+	static std::atomic<DWORD> owner{0};
+	static std::atomic<int> concurrent_faults{0};
+	static std::atomic<bool> reentered{false};
+	// What the owner is doing, for the re-entry line. Only the owner writes it.
+	static std::atomic<LPCSTR> stage{"claim"};
+
+	static void set_stage(LPCSTR name)
+	{
+		stage.store(name);
+	}
+
+	// The owner faulted or hit a fatal error while writing the report
+	static int reentry(LPCSTR where)
+	{
+		// One line, once: if logging itself faults we come back here and just stop
+		if (!reentered.exchange(true))
+		{
+			xrLogger::SetImmediateMode(true);
+			Msg("! %s re-entered during %s on the crash reporting thread (tid %lu), terminating", where, stage.load(),
+			    GetCurrentThreadId());
+			xrLogger::FlushLog();
+		}
+		TerminateProcess(GetCurrentProcess(), 1);
+		return EXCEPTION_EXECUTE_HANDLER;
+	}
+
+	// Returns only on the owner thread
+	static void acquire(LPCSTR where)
+	{
+		const DWORD self = GetCurrentThreadId();
+		DWORD expected = 0;
+		if (owner.compare_exchange_strong(expected, self))
+			return;
+
+		if (expected == self)
+			reentry(where);
+
+		concurrent_faults.fetch_add(1);
+		for (;;)
+			Sleep(INFINITE);
+	}
+
+	// End of the report on both paths. TerminateProcess skips DLL detach and static
+	// destructors, which can fault while other threads are parked mid-crash (seen
+	// under Proton when the filter returned and the process exited normally).
+	static void terminate(UINT exit_code)
+	{
+		set_stage("terminate");
+		xrLogger::FlushLog();
+		TerminateProcess(GetCurrentProcess(), exit_code);
+	}
+
+	static void format_faulting_thread(LPSTR buffer, u32 buffer_size)
+	{
+		LPCSTR tag = thread_tag_get();
+		xr_sprintf(buffer, buffer_size, "faulting thread: %s (tid %lu)", tag ? tag : "<untagged>", GetCurrentThreadId());
+	}
+
+	static void log_concurrent_faults()
+	{
+		const int count = concurrent_faults.load();
+		if (count > 0)
+			Msg("%d other thread%s faulted concurrently", count, count == 1 ? "" : "s");
+	}
+}
+
+// The crash save, run last by the crash report owner: the stack trace, minidump and
+// log are already on disk, so a save that fails or hangs can't cost the report. A
+// save from a failing process can hang, so a watchdog terminates the process if it
+// doesn't finish in time.
+namespace crash_save_guard
+{
+	// Large GAMMA saves can take several seconds
+	static constexpr DWORD timeout_seconds = 15;
+	static HANDLE save_done = nullptr;
+
+	static DWORD WINAPI log_timeout(LPVOID)
+	{
+		Msg("! crash save timed out after %lus, terminating", timeout_seconds);
+		xrLogger::FlushLog();
+		return 0;
+	}
+
+	static DWORD WINAPI watchdog(LPVOID)
+	{
+		if (WaitForSingleObject(save_done, timeout_seconds * 1000) == WAIT_OBJECT_0)
+			return 0;
+
+		// The hung save may hold a log lock: log from a helper thread and terminate
+		// whether or not that gets through
+		HANDLE logger = CreateThread(nullptr, 0, &log_timeout, nullptr, 0, nullptr);
+		if (logger)
+			WaitForSingleObject(logger, 2000);
+		TerminateProcess(GetCurrentProcess(), 1);
+		return 0;
+	}
+
+	static void run()
+	{
+		crash_claim::set_stage("save");
+
+		// Write synchronously from here on, and get everything queued so far to disk
+		xrLogger::SetImmediateMode(true);
+		xrLogger::FlushLog();
+
+		if (!crash_saving::pending())
+			return;
+
+		// Other threads are parked mid-fault: the game state is not safe to save
+		const int faults = crash_claim::concurrent_faults.load();
+		if (faults > 0)
+		{
+			Msg("! crash save skipped: %d other thread%s faulted concurrently", faults, faults == 1 ? "" : "s");
+			xrLogger::FlushLog();
+			return;
+		}
+
+		// The save touches game state the main thread owns
+		if (!thread_is_main())
+		{
+			LPCSTR tag = thread_tag_get();
+			Msg("! crash save skipped: fault on %s", tag ? tag : "<untagged>");
+			xrLogger::FlushLog();
+			return;
+		}
+
+		save_done = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+		HANDLE thread = save_done ? CreateThread(nullptr, 0, &watchdog, nullptr, 0, nullptr) : nullptr;
+		if (!thread)
+		{
+			Msg("! crash save skipped: could not create the watchdog thread (error %lu)", GetLastError());
+			xrLogger::FlushLog();
+			return;
+		}
+		CloseHandle(thread);
+
+		Msg("* crash save started (watchdog %lus)", timeout_seconds);
+		xrLogger::FlushLog();
+		const ULONGLONG start = GetTickCount64();
+		crash_saving::save();
+		SetEvent(save_done);
+		Msg("* crash save finished in %llu ms", GetTickCount64() - start);
+		xrLogger::FlushLog();
+	}
+}
+
+// DbgHelp is not thread-safe: every call into it (stack walks, minidumps) takes this lock
+static xrCriticalSection& dbghelp_lock()
+{
+	static xrCriticalSection lock;
+	return lock;
 }
 
 // demonized: print stack trace
@@ -108,7 +289,7 @@ protected:
     }
 };
 extern void printLuaStack();
-void LogStackTrace(LPCSTR header = nullptr, bool printStack = false)
+void LogStackTrace(LPCSTR header = nullptr, bool printStack = false, const CONTEXT* context = nullptr)
 {
 	if (!shared_str_initialized)
 		return;
@@ -117,10 +298,15 @@ void LogStackTrace(LPCSTR header = nullptr, bool printStack = false)
 	    Msg("%s", header);
 
     if (printStack) {
+        // The Lua state belongs to the main thread: from any other thread it is
+        // not where the fault happened, so label it rather than imply it is
+        if (!thread_is_main())
+            Msg("Lua stack (main thread, not the faulting thread):");
         printLuaStack();
         Msg("\n");
+        xrCriticalSectionGuard guard(dbghelp_lock());
         auto s = xr_StackWalker();
-        s.ShowCallstack();
+        s.ShowCallstack(GetCurrentThread(), context);
     }
 }
 
@@ -142,6 +328,9 @@ void xrDebug::gather_info(const char* expression, const char* description, const
 			buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%sFATAL ERROR%s%s", endline,
 			                     endline, endline);
 		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "* %s%s", xr_build_identity(), endline);
+		string256 thread_line;
+		crash_claim::format_faulting_thread(thread_line, sizeof(thread_line));
+		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%s%s", thread_line, endline);
 		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%sExpression    : %s%s", prefix,
 		                     expression, endline);
 		buffer += xr_sprintf(buffer, assertion_size - u32(buffer - buffer_base), "%sFunction      : %s%s", prefix,
@@ -212,6 +401,7 @@ void xrDebug::gather_info(const char* expression, const char* description, const
 		if (shared_str_initialized)
 			Msg("stack trace:\n");
 
+		crash_claim::set_stage("stack trace");
         LogStackTrace(nullptr, true);
 
 #ifdef USE_OWN_ERROR_MESSAGE_WINDOW
@@ -249,16 +439,9 @@ void xrDebug::do_exit(const std::string& message)
 void xrDebug::backend(const char* expression, const char* description, const char* argument0, const char* argument1,
                       const char* file, int line, const char* function, bool& ignore_always)
 {
-    // we save first
-    crash_saving::save();
-    
-	static xrCriticalSection CS
-#ifdef PROFILE_CRITICAL_SECTIONS
-        (MUTEX_PROFILE_ID(xrDebug::backend))
-#endif //-PROFILE_CRITICAL_SECTIONS
-		;
-
-	CS.Enter();
+	// Same claim as UnhandledFilter: one report at a time, never recursive
+	crash_claim::acquire("xrDebug::backend");
+	crash_claim::set_stage("header");
 
 	string4096 assertion_info;
 
@@ -270,14 +453,21 @@ void xrDebug::backend(const char* expression, const char* description, const cha
 	buffer += xr_sprintf(buffer, sizeof(assertion_info) - u32(buffer - &assertion_info[0]),
 	                     "%sPress OK to abort execution%s", endline, endline);
 
+	crash_claim::set_stage("cvar dump");
 	if (handler)
 		handler();
 
+	crash_claim::set_stage("fault count");
+	crash_claim::log_concurrent_faults();
 	xrLogger::FlushLog();
+
+	// Last, once the report is on disk
+	crash_save_guard::run();
 
     if (IsDebuggerPresent())
         DebugBreak();
 
+	crash_claim::set_stage("message box");
 	ShowCursor(true);
 	ShowWindow(GetActiveWindow(), SW_FORCEMINIMIZE);
 	MessageBox(
@@ -287,9 +477,7 @@ void xrDebug::backend(const char* expression, const char* description, const cha
 		MB_OK | MB_ICONERROR | MB_SYSTEMMODAL
 	);
 
-	CS.Leave();
-
-	TerminateProcess(GetCurrentProcess(), 1);
+	crash_claim::terminate(1);
 }
 
 //-AVO
@@ -686,6 +874,8 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
     }
 
     LPCTSTR szResult = NULL;
+    bool written = false;
+    string_path written_path;
 
     if (hDll)
     {
@@ -744,11 +934,17 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
                 user_streams.UserStreamCount = 1;
                 user_streams.UserStreamArray = &comment;
 
-                BOOL bOK = pDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, dump_flags, &ExInfo, &user_streams, NULL );
+                BOOL bOK;
+                {
+                    xrCriticalSectionGuard guard(dbghelp_lock());
+                    bOK = pDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, dump_flags, &ExInfo, &user_streams, NULL );
+                }
                 if (bOK)
                 {
                     xr_sprintf( szScratch, "Saved dump file to '%s'", szDumpPath );
                     szResult = szScratch;
+                    written = true;
+                    xr_strcpy(written_path, szDumpPath);
                     // retval = EXCEPTION_EXECUTE_HANDLER;
                 }
                 else
@@ -773,6 +969,12 @@ void save_mini_dump (_EXCEPTION_POINTERS* pExceptionInfo)
     {
         szResult = "DBGHELP.DLL not found";
     }
+
+    if (written)
+        Msg("* minidump written: %s", written_path);
+    else
+        Msg("! minidump not written: %s", szResult);
+    xrLogger::FlushLog();
 }
 #endif //-USE_OWN_MINI_DUMP
 
@@ -809,25 +1011,51 @@ void format_message(LPSTR buffer, const u32& buffer_size)
 
 #ifdef NO_BUG_TRAP
 //AVO: simplify function
+static LONG unhandled_filter_report(_EXCEPTION_POINTERS* pExceptionInfo);
+
 LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
 {
+	// Before anything else (format_message reads GetLastError)
+	crash_claim::acquire("UnhandledFilter");
+
+	// A fault inside a top-level filter is not passed back to it: the OS just
+	// kills the process. Catch it here so it gets the same one-line treatment.
+	__try
+	{
+		return unhandled_filter_report(pExceptionInfo);
+	}
+	__except (crash_claim::reentry("UnhandledFilter"))
+	{
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static LONG unhandled_filter_report(_EXCEPTION_POINTERS* pExceptionInfo)
+{
+	crash_claim::set_stage("header");
     xrLogger::SetImmediateMode(true);
 	string256 error_message;
 	format_message(error_message, sizeof(error_message));
 
 	Msg("* %s", xr_build_identity());
+	string256 thread_line;
+	crash_claim::format_faulting_thread(thread_line, sizeof(thread_line));
+	Msg("%s", thread_line);
 
 	CONTEXT save = *pExceptionInfo->ContextRecord;
 	//    BuildStackTrace(pExceptionInfo);
 	*pExceptionInfo->ContextRecord = save;
 
+	crash_claim::set_stage("cvar dump");
     if (Debug.get_crashhandler())
         Debug.get_crashhandler()();
 
 	if (shared_str_initialized)
 		Msg("stack trace:\n");
 
-    LogStackTrace(nullptr, true);
+    // Walk from the faulting frame, not from inside this handler
+	crash_claim::set_stage("stack trace");
+    LogStackTrace(nullptr, true, pExceptionInfo->ContextRecord);
 
 	if (!IsDebuggerPresent())
 	{
@@ -867,12 +1095,22 @@ LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
     xrLogger::FlushLog();
 
 # ifdef USE_OWN_MINI_DUMP
+	crash_claim::set_stage("minidump");
 	save_mini_dump(pExceptionInfo);
 # endif // USE_OWN_MINI_DUMP
+
+	// Last, so threads that faulted while the stack and dump were written are counted
+	crash_claim::set_stage("fault count");
+	crash_claim::log_concurrent_faults();
+	xrLogger::FlushLog();
+
+	// Last, once the stack trace, minidump and log are on disk
+	crash_save_guard::run();
 
     if (IsDebuggerPresent())
         DebugBreak();
 
+	crash_claim::set_stage("message box");
 	ShowCursor(true);
 	ShowWindow(GetActiveWindow(), SW_FORCEMINIMIZE);
 	MessageBox(
@@ -881,8 +1119,9 @@ LONG WINAPI UnhandledFilter(_EXCEPTION_POINTERS* pExceptionInfo)
 		"Fatal Error",
 		MB_OK | MB_ICONERROR | MB_SYSTEMMODAL
 	);
-	//    TerminateProcess(GetCurrentProcess(), 1);
-
+	// Don't return to the OS: exit with the exception code it would have used
+	const UINT exit_code = pExceptionInfo->ExceptionRecord ? pExceptionInfo->ExceptionRecord->ExceptionCode : 1;
+	crash_claim::terminate(exit_code);
 	return (EXCEPTION_CONTINUE_SEARCH);
 }
 
@@ -1221,3 +1460,60 @@ void xrDebug::_initialize(const bool& dedicated)
 #endif // 0
 }
 #endif
+
+// Each task waits until every worker has picked one up, then all of them write
+// through a null pointer together. The tasks are enqueued rather than run with
+// parallel_for so the calling (main) thread never runs one: only workers fault,
+// and the barrier can't deadlock with two tasks queued on one thread.
+// With hang_save, the crash save that follows the report never returns. With
+// on_calling_thread, the calling thread faults instead of `count` workers.
+void xrDebug::crash_test(int count, bool hang_save, bool on_calling_thread)
+{
+	if (on_calling_thread)
+	{
+		crash_saving::debug_hang = hang_save;
+		LPCSTR tag = thread_tag_get();
+		Msg("! dbg_crash_test: faulting the calling thread (%s)%s", tag ? tag : "<untagged>",
+		    crash_saving::debug_hang_active() ? ", crash save will hang" : "");
+		xrLogger::FlushLog();
+		int* volatile target = nullptr;
+		*target = 0;
+		return;
+	}
+
+	const int workers = tbb::this_task_arena::max_concurrency() - 1;
+	if (workers < 1)
+	{
+		Msg("! dbg_crash_test: no TBB workers available");
+		return;
+	}
+	count = std::clamp(count, 1, workers);
+	crash_saving::debug_hang = hang_save;
+
+	Msg("! dbg_crash_test: faulting %d of %d TBB workers at once%s", count, workers,
+	    crash_saving::debug_hang_active() ? ", crash save will hang" : "");
+	xrLogger::FlushLog();
+
+	struct barrier_t
+	{
+		std::atomic<int> arrived{0};
+		int expected = 0;
+	};
+	barrier_t* barrier = new barrier_t(); // never freed: the process is going down
+	barrier->expected = count;
+
+	for (int i = 0; i < count; ++i)
+	{
+		tbb::this_task_arena::enqueue([barrier]()
+		{
+			barrier->arrived.fetch_add(1);
+			// Don't hang forever if fewer workers than expected pick a task up
+			const ULONGLONG deadline = GetTickCount64() + 5000;
+			while (barrier->arrived.load() < barrier->expected && GetTickCount64() < deadline)
+				YieldProcessor();
+
+			int* volatile target = nullptr;
+			*target = 0;
+		});
+	}
+}

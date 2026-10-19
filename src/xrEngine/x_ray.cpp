@@ -1276,6 +1276,8 @@ int APIENTRY WinMain(HINSTANCE hInstance,
   // Initialize LuaJIT low-memory pool FIRST, before any DLLs load and fragment
 	// the lower 2GB address space.
 	XR_EARLY_INIT();
+
+	thread_tag_set_main();
   
 	// Enable per-monitor DPI awareness so GetMonitorInfo returns real pixel sizes.
 	// Without this, monitors with different DPI scaling report wrong resolutions

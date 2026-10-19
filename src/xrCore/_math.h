@@ -75,4 +75,16 @@ extern XRCORE_API HANDLE thread_spawn_ex(
     void* arglist
 );
 
+// Per-thread tag shown in crash reports: "main", "TBB worker N", or the
+// thread_spawn name. Also sets the OS thread description. The name is copied.
+extern XRCORE_API void thread_tag_set(const char* name);
+// Tags the calling thread "main" and records it as the main thread. Call once, from WinMain.
+extern XRCORE_API void thread_tag_set_main();
+// True on the thread that called thread_tag_set_main
+extern XRCORE_API bool thread_is_main();
+// nullptr if the calling thread was never tagged
+extern XRCORE_API const char* thread_tag_get();
+// Tags TBB workers as they join the calling thread's arena. Call from the main thread.
+extern XRCORE_API void thread_tag_observe_tbb_workers();
+
 #endif //__XR_MATH_H__
