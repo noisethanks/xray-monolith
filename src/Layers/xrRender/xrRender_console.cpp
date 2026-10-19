@@ -532,6 +532,7 @@ float ps_r2_gloss_min = 0.0f;
 BOOL occq_debug = FALSE;
 BOOL r_blood_decals_on_objects = FALSE;
 int ps_r__texture_upload_threads = 0; // 0 = unlimited
+int ps_r__texture_load_staging = 1; // 0 = load normal textures as IMMUTABLE (DX10/11)
 
 int opt_static = 2;
 int opt_dynamic = 2;
@@ -1368,6 +1369,9 @@ void xrRender_initconsole()
 
 	CMD4(CCC_Integer, "r__blood_decals_on_objects", &r_blood_decals_on_objects, 0, 1);
 	CMD4(CCC_Integer, "r__texture_upload_threads", &ps_r__texture_upload_threads, 0, 256);
+#if defined(USE_DX10) || defined(USE_DX11)
+	CMD4(CCC_Integer, "r__texture_load_staging", &ps_r__texture_load_staging, 0, 1);
+#endif	//	USE_DX10
 
 	// R1
 	CMD4(CCC_Float, "r1_ssa_lod_a", &ps_r1_ssaLOD_A, 16, 96);

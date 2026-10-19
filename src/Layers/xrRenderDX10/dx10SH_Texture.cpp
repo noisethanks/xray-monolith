@@ -23,6 +23,15 @@
 // texture_load_queue() (ResourceManager.cpp) whenever the device is ready. apply_load()
 // below reuses the same queue for evicted textures instead of calling Load() inline.
 
+// Clears bLoadedAsStaging, keeping the process-wide staging count in step
+static void staging_untrack(CTexture& texture)
+{
+	if (!texture.flags.bLoadedAsStaging)
+		return;
+	texture.flags.bLoadedAsStaging = FALSE;
+	texture_staging_removed(texture.flags.MemoryUsage);
+}
+
 void resptrcode_texture::create(LPCSTR _name)
 {
 	PROF_EVENT("resptrcode_texture::create");
@@ -71,6 +80,8 @@ void CTexture::surface_set(ID3DBaseTexture* surf)
 	if (cName.size() && strstr(cName.c_str(), "$user$"))
 		flags.bUser = true;
 	if (surf) surf->AddRef();
+	// The staging copy being replaced is not converted any more
+	staging_untrack(*this);
 	_RELEASE(pSurface);
 	_RELEASE(m_pSRView);
 
@@ -264,7 +275,7 @@ void CTexture::ProcessStaging()
 	*/
 
 
-	flags.bLoadedAsStaging = FALSE;
+	staging_untrack(*this);
 
 	//	Check if texture was not copied _before_ it was converted.
 	ULONG RefCnt = pSurface->Release();
@@ -671,7 +682,10 @@ void CTexture::Load()
 		// Normal texture
 		u32 mem = 0;
 		//pSurface = ::RImplementation.texture_load	(*cName,mem);
-		pSurface = ::RImplementation.texture_load(*cName, mem, true);
+		// r__texture_load_staging 0 loads straight into an IMMUTABLE shader resource, with
+		// the view created below, instead of a STAGING copy that stays in host memory until
+		// ProcessStaging() converts it on first Apply()/surface_get()
+		pSurface = ::RImplementation.texture_load(*cName, mem, ps_r__texture_load_staging != 0);
 
 		if (GetUsage() == D3D_USAGE_STAGING)
 		{
@@ -685,6 +699,8 @@ void CTexture::Load()
 			// pSurface->SetPriority	(PRIORITY_NORMAL);
 			flags.MemoryUsage = mem;
 		}
+		if (flags.bLoadedAsStaging)
+			texture_staging_added(flags.MemoryUsage);
 		
 		if (pSurface && bCreateView)
 			CHK_DX(HW.pDevice->CreateShaderResourceView(pSurface, NULL, &m_pSRView));
@@ -712,7 +728,7 @@ void CTexture::Unload()
 	//.	if (flags.bLoaded)		Msg		("* Unloaded: %s",cName.c_str());
 
 	flags.bLoaded = FALSE;
-	flags.bLoadedAsStaging = FALSE;
+	staging_untrack(*this);
 	if (!seqDATA.empty())
 	{
 		for (u32 I = 0; I < seqDATA.size(); I++)

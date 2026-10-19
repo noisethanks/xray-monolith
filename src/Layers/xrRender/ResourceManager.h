@@ -21,6 +21,9 @@ class CTexture;
 void texture_load_queue(CTexture* texture);
 // CTexture::Load() with process-wide in-flight/peak counting and -dbg progress lines
 void texture_load_counted(CTexture* texture);
+// Textures currently held as STAGING copies (bLoadedAsStaging), for the progress lines
+void texture_staging_added(u32 bytes);
+void texture_staging_removed(u32 bytes);
 
 class ECORE_API CResourceManager
 {
@@ -238,10 +241,12 @@ public:
 	void DeleteGeom(const SGeometry* VS);
 	void DeferredLoad(BOOL E) { bDeferredLoad = E; }
 	void DeferredUpload();
-	// DeferredUpload instrumentation (-dbg): process and texture memory, in MiB
+	// DeferredUpload instrumentation (-dbg): system, process and texture memory, in MiB
 	struct upload_memory_stats
 	{
-		u64 private_mib = 0;
+		// Used physical memory, system-wide: unlike the process counters this works under
+		// Wine and includes driver (DXVK) allocations
+		u64 system_used_mib = 0;
 		u64 working_set_mib = 0;
 		u64 texture_mib = 0;
 	};

@@ -405,6 +405,21 @@ namespace texture_loads
 	static std::atomic<int> in_flight{0};
 	static std::atomic<int> peak_in_flight{0};
 	static std::atomic<u32> completed{0};
+	// Textures loaded as STAGING and not yet converted by ProcessStaging() or unloaded
+	static std::atomic<int> staging_count{0};
+	static std::atomic<u64> staging_bytes{0};
+}
+
+void texture_staging_added(u32 bytes)
+{
+	texture_loads::staging_count.fetch_add(1);
+	texture_loads::staging_bytes.fetch_add(bytes);
+}
+
+void texture_staging_removed(u32 bytes)
+{
+	texture_loads::staging_count.fetch_sub(1);
+	texture_loads::staging_bytes.fetch_sub(bytes);
 }
 
 void texture_load_counted(CTexture* texture)
@@ -423,8 +438,9 @@ void texture_load_counted(CTexture* texture)
 	{
 		CResourceManager::upload_memory_stats mem_now;
 		CResourceManager::sample_process_memory(mem_now);
-		Msg("* TexLoad progress: done %u, in-flight now %d, peak %d, private bytes %llu MiB", done, remaining,
-		    peak_in_flight.load(), mem_now.private_mib);
+		Msg("* TexLoad progress: done %u, in-flight now %d, peak %d, staging %d textures / %llu MiB, "
+		    "system used %llu MiB", done, remaining, peak_in_flight.load(), staging_count.load(),
+		    staging_bytes.load() >> 20, mem_now.system_used_mib);
 	}
 }
 
@@ -495,8 +511,8 @@ void CResourceManager::DeferredUpload()
 	if (instrument)
 	{
 		sample_upload_memory(mem_before);
-		Msg("* DeferredUpload start: %u textures, private bytes %llu MiB, working set %llu MiB, upload threads %d%s",
-		    total, mem_before.private_mib, mem_before.working_set_mib, upload_threads,
+		Msg("* DeferredUpload start: %u textures, system used %llu MiB, working set %llu MiB, upload threads %d%s",
+		    total, mem_before.system_used_mib, mem_before.working_set_mib, upload_threads,
 		    upload_threads > 0 ? "" : " (unlimited)");
 	}
 
@@ -530,24 +546,26 @@ void CResourceManager::DeferredUpload()
 	if (instrument)
 	{
 		sample_upload_memory(mem_after);
-		Msg("* DeferredUpload: %u textures, peak in-flight %d, private bytes %llu -> %llu MiB, time %u ms, "
+		Msg("* DeferredUpload: %u textures, peak in-flight %d, system used %llu -> %llu MiB, time %u ms, "
 		    "working set %llu -> %llu MiB, texture memory %llu -> %llu MiB, upload threads %d%s",
-		    total, peak_in_flight.load(), mem_before.private_mib, mem_after.private_mib, elapsed_ms,
+		    total, peak_in_flight.load(), mem_before.system_used_mib, mem_after.system_used_mib, elapsed_ms,
 		    mem_before.working_set_mib, mem_after.working_set_mib, mem_before.texture_mib, mem_after.texture_mib,
 		    upload_threads, upload_threads > 0 ? "" : " (unlimited)");
 	}
 }
 
-// Process memory only: safe to call from the upload workers (takes no engine locks)
+// System and process memory only: safe to call from the upload workers (takes no engine locks)
 void CResourceManager::sample_process_memory(upload_memory_stats& stats)
 {
-	PROCESS_MEMORY_COUNTERS_EX counters = {};
+	MEMORYSTATUSEX status = {};
+	status.dwLength = sizeof(status);
+	if (GlobalMemoryStatusEx(&status))
+		stats.system_used_mib = (status.ullTotalPhys - status.ullAvailPhys) >> 20;
+
+	PROCESS_MEMORY_COUNTERS counters = {};
 	counters.cb = sizeof(counters);
-	if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&counters, sizeof(counters)))
-	{
-		stats.private_mib = counters.PrivateUsage >> 20;
+	if (GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters)))
 		stats.working_set_mib = counters.WorkingSetSize >> 20;
-	}
 }
 
 void CResourceManager::sample_upload_memory(upload_memory_stats& stats)

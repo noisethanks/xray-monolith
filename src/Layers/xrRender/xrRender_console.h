@@ -71,6 +71,7 @@ extern ECORE_API xr_token qminmax_sm_token[];
 extern ENGINE_API int ps_r__Supersample;
 extern ECORE_API int ps_r__LightSleepFrames;
 extern int ps_r__texture_upload_threads; // DeferredUpload concurrency cap, 0 = unlimited
+extern int ps_r__texture_load_staging; // 1 = STAGING + ProcessStaging() on first use, 0 = IMMUTABLE
 
 extern ECORE_API float ps_r__Detail_l_ambient;
 extern ECORE_API float ps_r__Detail_l_aniso;

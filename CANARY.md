@@ -58,3 +58,16 @@ Based on upstream `all-in-one-vs2022-wpo-mt` at `871e2491`.
   both: the async loads run in a dedicated `tbb::task_arena` of that size, and
   `DeferredUpload` runs its loop in one. A change applies to the async loads
   once none are queued or running, i.e. by the next level load.
+- **Staging texture accounting and `r__texture_load_staging`.** DX10/11 load
+  normal textures as STAGING copies that stay in host memory until their first
+  use converts them (`ProcessStaging`). The "* TexLoad progress" line now shows
+  how many textures are held that way and their estimated size ("staging S
+  textures / B MiB"). Private bytes is replaced by system used physical memory
+  ("system used X MiB", from `GlobalMemoryStatusEx`) in the progress and
+  `DeferredUpload` lines, since it reads 0 under Wine and misses DXVK's
+  allocations. New console variable `r__texture_load_staging` (R3/R4 only,
+  default 1 = today's behavior): 0 loads normal textures directly as IMMUTABLE
+  shader resources with the view created at load time. Videos (`.ogm`, `.avi`),
+  GIFs, `.seq` frames and `$user$` textures never used the staging path and are
+  unchanged. It applies to textures loaded after the change; `r__no_ram_textures`
+  / `-noramtex` still turns staging off for every load as before.
