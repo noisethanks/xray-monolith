@@ -2,7 +2,6 @@
 
 void CRenderTarget::phase_sunshafts()
 {
-	PIX_EVENT(phase_sunshafts);
 	CEnvDescriptor& env = *g_pGamePersistent->Environment().CurrentEnv;
 	if (env.m_fSunShaftsIntensity <= 0.001) return;
 
@@ -201,6 +200,6 @@ void CRenderTarget::phase_sunshafts()
 
 	RCache.set_Stencil(FALSE);
 #if defined(USE_DX10) || defined(USE_DX11)
-	u_swap_rt(rt_Generic_0, rt_Generic);
+	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), rt_Generic->pTexture->surface_get());
 #endif
 };

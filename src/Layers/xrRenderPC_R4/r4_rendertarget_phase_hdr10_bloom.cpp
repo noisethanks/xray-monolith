@@ -22,7 +22,6 @@ static void Swap(T& a, T& b)
 
 void CRenderTarget::phase_hdr10_bloom()
 {
-    PIX_EVENT(phase_hdr10_bloom);
     RCache.set_Z(FALSE);
 
     float orig_w = float(Device.dwWidth);

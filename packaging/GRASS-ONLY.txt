@@ -1,0 +1,22 @@
+Grass-only optimization build
+=============================
+
+Branch: grass-only-optimizations
+Base: dev at c60554d2; upstream MT rendering baseline: 871e2491.
+
+Keeps the five grass/detail shader overrides and their DX10/DX11 engine support:
+hardware instancing, batching, once-per-frame instance packing, depth sorting,
+and distance-based density controls.
+
+Restores upstream AO/IL blur, SSR scaling, and screen-space postprocessing
+render-target copies. Removes SSFX_AO_SCALED_BLUR and both custom AO shaders.
+AO and SSR remain available through the installed Screen Space Shaders mod.
+
+Run deploy.bat to build and install all four MT executables and the five shaders.
+Deployment also removes ssfx_ao.ps and ssfx_ao_blur.ps from the shader patch mod.
+When manually updating, replace the old shader patch instead of merging it;
+remove those two obsolete overrides from any prior loose installation as well.
+Clear the Anomaly shader cache before launching.
+
+docs/OPTIMIZATION_AUDIT.md describes the earlier combined optimization branch,
+not the screen-space behavior of this grass-only branch.

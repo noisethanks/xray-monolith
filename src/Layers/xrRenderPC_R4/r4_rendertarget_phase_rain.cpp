@@ -12,7 +12,6 @@ void CRenderTarget::phase_rain()
 
 void CRenderTarget::phase_ssfx_rain()
 {
-	PIX_EVENT(phase_ssfx_rain);
 	//Constants
 	u32 Offset = 0;
 	u32 C = color_rgba(0, 0, 0, 255);

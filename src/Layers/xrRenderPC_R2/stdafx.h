@@ -16,8 +16,6 @@
 
 #include "../xrRender/xrD3DDefs.h"
 
-#include "../xrRender/Debug/dxPixEventWrapper.h"
-
 #include "../xrRender/HW.h"
 #include "../xrRender/Shader.h"
 #include "../xrRender/R_Backend.h"

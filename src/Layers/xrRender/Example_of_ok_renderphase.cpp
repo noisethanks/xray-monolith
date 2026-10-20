@@ -50,8 +50,8 @@ void CRenderTarget::phase_disco_polo()
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
-	//Resolve RT (swap them instead of copying!)
+	//Resolve RT
 #if defined(USE_DX10) || defined(USE_DX11)
-	u_swap_rt(rt_Generic_0, dest_rt);
+	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
 #endif
 };

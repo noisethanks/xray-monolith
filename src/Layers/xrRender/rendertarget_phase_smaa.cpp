@@ -3,7 +3,6 @@
 
 void CRenderTarget::phase_smaa()
 {
-	PIX_EVENT(phase_smaa);
 	//Constants
 	u32 Offset = 0;
 	u32 C = color_rgba(0, 0, 0, 255);
@@ -97,7 +96,7 @@ void CRenderTarget::phase_smaa()
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
 #if defined(USE_DX10) || defined(USE_DX11)
-	u_swap_rt(rt_Generic_0, dest_rt);
+	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
 #endif
 }
 
@@ -105,7 +104,6 @@ void CRenderTarget::phase_smaa()
 
 void CRenderTarget::phase_ssfx_taa()
 {
-	PIX_EVENT(phase_ssfx_taa);
 	u32 Offset = 0;
 	Fvector2 p0, p1;
 
@@ -136,7 +134,7 @@ void CRenderTarget::phase_ssfx_taa()
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 	
-	u_swap_rt(rt_ssfx_taa, rt_ssfx_accum);
+	HW.pContext->CopyResource(rt_ssfx_taa->pTexture->surface_get(), rt_ssfx_accum->pTexture->surface_get());
 
 	// TAA
 	ref_rt& dest_rt = RImplementation.o.dx10_msaa ? rt_Generic : rt_Color;
@@ -157,8 +155,8 @@ void CRenderTarget::phase_ssfx_taa()
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 
-	// Accumulate (TAA result becomes next frame's history and the sharpen input)
-	u_swap_rt(rt_ssfx_prev_frame, dest_rt);
+	// Accumulate
+	HW.pContext->CopyResource(rt_ssfx_prev_frame->pTexture->surface_get(), dest_rt->pTexture->surface_get());
 
 	// Sharpening phase
 	u_setrt(rt_Generic_0, nullptr, nullptr, nullptr);

@@ -58,7 +58,18 @@ for /f "usebackq eol=# delims=" %%F in ("%SHADER_MANIFEST%") do (
     )
 )
 
+rem Retire the old AO overrides so the installed SSS mod supplies its stock shaders.
+for %%F in (ssfx_ao.ps ssfx_ao_blur.ps) do (
+    if exist "%DEPLOY_SHADER_MOD%\gamedata\shaders\r3\%%F" (
+        del /Q "%DEPLOY_SHADER_MOD%\gamedata\shaders\r3\%%F"
+        if exist "%DEPLOY_SHADER_MOD%\gamedata\shaders\r3\%%F" (
+            echo ERROR: Failed to remove retired shader %%F.
+            exit /b 1
+        )
+    )
+)
+
 echo.
-echo Deployment complete.
+echo Grass-only deployment complete.
 echo Delete the shader cache before launching the game.
 exit /b 0

@@ -344,7 +344,6 @@ void CRenderTarget::phase_combine()
 	// [SSFX] - Water SSR rendering
 	if (RImplementation.o.ssfx_water && !Device.m_SecondViewport.IsSVPFrame())
 	{
-		PIX_EVENT(ssfx_water_ssr);
 		FLOAT ColorRGBA[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 		HW.pContext->ClearRenderTargetView(rt_ssfx_temp->pRT, ColorRGBA);
 		HW.pContext->ClearRenderTargetView(rt_ssfx_temp2->pRT, ColorRGBA);
@@ -383,11 +382,8 @@ void CRenderTarget::phase_combine()
 		u_setrt(rt_Generic_0_r, 0, 0, rt_MSAADepth->pZRT);
 
 	// Final water rendering ( All the code above can be omitted if the Water module isn't installed )
-	{
-		PIX_EVENT(render_water);
-		RCache.set_xform_world(Fidentity);
-		RImplementation.GMBase.r_dsgraph_render_water();
-	}
+	RCache.set_xform_world(Fidentity);
+	RImplementation.GMBase.r_dsgraph_render_water();
 	
 	{
 		if (RImplementation.o.ssfx_rain)
@@ -740,12 +736,13 @@ void CRenderTarget::phase_combine()
 	RCache.set_Stencil(FALSE);
 
 	if (RImplementation.o.dx11_hdr10) {
+		// TODO: we should be able to avoid a copy if both are enabled
 		if (ps_r4_hdr10_bloom_on) {
-			u_swap_rt(rt_Generic_0, rt_Color);
+			HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), rt_Color->pTexture->surface_get());
 			phase_hdr10_bloom(); // samples from rt_Generic_0, writes to rt_Color
 		}
 		if (ps_r4_hdr10_flare_on) {
-			u_swap_rt(rt_Generic_0, rt_Color);
+			HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), rt_Color->pTexture->surface_get());
 			phase_hdr10_lens_flare(); // samples from rt_Generic_0, writes to rt_Color
 		}
 	}

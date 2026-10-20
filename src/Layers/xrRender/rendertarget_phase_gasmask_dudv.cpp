@@ -20,8 +20,6 @@ void CRenderTarget::phase_gasmask_dudv()
 	p1.set((w + 0.5f) / w, (h + 0.5f) / h);
 #endif
 	
-	PIX_EVENT(phase_gasmask_dudv);
-
 	//////////////////////////////////////////////////////////////////////////
 	//Set MSAA/NonMSAA rendertarget
 #if defined(USE_DX10) || defined(USE_DX11)
@@ -53,6 +51,6 @@ void CRenderTarget::phase_gasmask_dudv()
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
 	
 #if defined(USE_DX10) || defined(USE_DX11)
-	u_swap_rt(rt_Generic_0, dest_rt);
+	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
 #endif
 };
