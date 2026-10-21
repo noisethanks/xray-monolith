@@ -187,22 +187,13 @@ jobs:
           exit 1
         fi
 
-        # Changelog base: the newest canary-<n> tag from an earlier run, else the
-        # merge base with upstream.
-        prev=$(git tag --list 'canary-*' \
-          | grep -E '^canary-[0-9]+$' \
-          | awk -F- -v run="$RUN_NUMBER" '$2 < run { print $2 }' \
-          | sort -n | tail -1)
-        if [ -n "$prev" ]; then
-          base="canary-$prev"
-          base_desc="$base"
-        else
-          git fetch --no-tags "$UPSTREAM_URL" "+refs/heads/$UPSTREAM_BRANCH:refs/remotes/upstream/$UPSTREAM_BRANCH"
-          base=$(git merge-base "refs/remotes/upstream/$UPSTREAM_BRANCH" "$SHA") || {
-            echo "::error::No previous canary tag and no merge base with upstream $UPSTREAM_BRANCH"; exit 1
-          }
-          base_desc="upstream \`$UPSTREAM_BRANCH\` merge base \`$(git rev-parse --short=7 "$base")\`"
-        fi
+        # Changelog base: the merge base with upstream. Each canary is rebuilt
+        # from upstream, so this lists exactly what the canary adds.
+        git fetch --no-tags "$UPSTREAM_URL" "+refs/heads/$UPSTREAM_BRANCH:refs/remotes/upstream/$UPSTREAM_BRANCH"
+        base=$(git merge-base "refs/remotes/upstream/$UPSTREAM_BRANCH" "$SHA") || {
+          echo "::error::No merge base with upstream $UPSTREAM_BRANCH"; exit 1
+        }
+        base_desc="upstream \`$UPSTREAM_BRANCH\` merge base \`$(git rev-parse --short=7 "$base")\`"
 
         {
           cat section.md
