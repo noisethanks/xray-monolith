@@ -1,32 +1,55 @@
-Sam's Optimization Patches
-==========================
+Sam's Optimization Patches - Grass Only
+======================================
 
-This bundle contains two required archives for the patch:
+Complete MT engine update for GAMMA / Anomaly 1.5.3 with compatible Screen Space
+Shaders. You do NOT need to install Demonized / Modded Exes first: this package
+includes the matching engine support data and the optimized executables.
+This is not a shader package for unmodded Anomaly without SSS.
 
-  Sam-Optimization-Patches-MT-Executables.zip
-  Sam-Optimization-Patches-Shaders.zip
+This version keeps the grass optimizations and restores upstream screen-space
+rendering. AO and SSR remain available through your installed shader mods.
 
-MT executables
---------------
+Install
+-------
 
-1. Open Sam-Optimization-Patches-MT-Executables.zip.
-2. Merge the packaged Anomaly folder with your STALKER Anomaly game folder.
-3. Allow these files under Anomaly\bin to be replaced:
+1. Close the game. Extract this ZIP into the Anomaly game folder used by GAMMA
+   (the folder containing AnomalyLauncher.exe). Merge bin, db, and gamedata;
+   allow overwrites. There is no extra Anomaly folder inside this ZIP.
+2. In GAMMA's Mod Organizer 2, install
+   mod-manager\Sam-Optimization-Patches-Shaders.zip and enable it after SSS and
+   other shader mods so these shaders win file conflicts. Replace your previous
+   Sam shader patch mod if already installed; choose Replace, not Merge. The ZIP
+   contains the same five grass shader overrides also supplied under gamedata
+   for installs without MO2.
+3. Delete the shader cache using the Anomaly launcher, then launch through GAMMA
+   as usual. Select DX10 or DX11; enable AVX only on supported CPUs.
 
-     AnomalyDX10.exe
-     AnomalyDX10AVX.exe
-     AnomalyDX11.exe
-     AnomalyDX11AVX.exe
+When upgrading from the combined optimization patch, remove its old ssfx_ao.ps
+and ssfx_ao_blur.ps overrides from Anomaly\gamedata\shaders\r3 and the previous
+Sam shader patch mod, if present. Extracting this ZIP does not remove old files.
+Keep the versions supplied by SSS, Atmospherics, or other installed shader mods.
 
+Included
+--------
 
-Shader mod
-----------
+bin\AnomalyDX10.exe
+bin\AnomalyDX10AVX.exe
+bin\AnomalyDX11.exe
+bin\AnomalyDX11AVX.exe
+db\mods\00_modded_exes_gamedata.db0
+gamedata\shaders\r3\... (matching optimization shaders)
+mod-manager\Sam-Optimization-Patches-Shaders.zip
+GRASS-ONLY.txt (branch details and upgrade notes)
 
-1. Install Sam-Optimization-Patches-Shaders.zip as a normal Mod Organizer 2 mod.
-2. Enable it after Screen Space Shaders and other shader packages so these files
-   win any file conflicts.
+The db archive supplies this source revision's engine scripts, configs,
+materials, shaders, textures, and level fixes. It uses the upstream filename so
+extracting over a previous Demonized installation replaces its archive instead
+of leaving two competing engine-data packages. Keep other mods' archives.
 
-After installing or updating
-----------------------------
+Old loose Demonized support files or copies supplied through MO2 can override
+that archive. If present, update/remove only those obsolete engine overrides;
+do not delete your whole gamedata directory or unrelated mods.
 
-Delete the shader cache from the Anomaly launcher before starting the game.
+Only DX10/DX11 engines are included. Normal GAMMA/Anomaly prerequisites still
+apply, including the Visual C++ Redistributable and DirectX runtimes. This
+package does not install GAMMA or SSS, and does not target older Anomaly versions.

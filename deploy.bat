@@ -11,7 +11,7 @@ if not defined DEPLOY_ANOMALY set "DEPLOY_ANOMALY=D:\anomaly"
 
 set "DEPLOY_SHADER_MOD=%SHADER_MOD_DIR%"
 if not "%~2"=="" set "DEPLOY_SHADER_MOD=%~2"
-if not defined DEPLOY_SHADER_MOD set "DEPLOY_SHADER_MOD=D:\gamma\mods\Sam's Optimization Patches (Shaders)"
+if not defined DEPLOY_SHADER_MOD set "DEPLOY_SHADER_MOD=D:\gamma\mods\Sam's Optimization Patch - Shaders"
 
 if not exist "%DEPLOY_ANOMALY%\bin\" (
     echo ERROR: Anomaly bin directory not found: "%DEPLOY_ANOMALY%\bin"
