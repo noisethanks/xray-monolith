@@ -1,30 +1,63 @@
-name: Build and Release
+name: Canary Release
 
 on:
   workflow_dispatch:
     inputs:
       build_ref:
-        description: "Branch, tag, or SHA to build"
+        description: "Branch, tag or commit SHA to build"
         required: true
+        default: "canary_10_19"
       release_tag:
-        description: "Release tag (leave blank to auto-generate from build_ref)"
+        description: "Release tag (defaults to canary-<run number>)"
         required: false
         default: ""
 
 env:
   SOLUTION_FILE_PATH: src/engine-vs2022.sln
+  RELEASE_TAG: ${{ inputs.release_tag || format('canary-{0}', github.run_number) }}
+  # Fallback changelog base when no earlier canary tag exists.
+  UPSTREAM_URL: https://github.com/themrdemonized/xray-monolith
+  UPSTREAM_BRANCH: all-in-one-vs2022-wpo-mt
 
 permissions:
   contents: write
 
 jobs:
+  # Resolve build_ref to one commit up front, so every build job and the release
+  # tag all point at the same SHA even if the branch moves during the run.
+  resolve:
+    name: resolve-ref
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      short_sha: ${{ steps.sha.outputs.short_sha }}
+
+    steps:
+    - name: Checkout ${{ inputs.build_ref }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.build_ref }}
+
+    - name: Resolve SHA
+      id: sha
+      run: |
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        # Same length as the "* Build:" line (build_identity.ps1)
+        echo "short_sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
     name: build-job
+    needs: resolve
     runs-on: windows-latest
 
     strategy:
       matrix:
         buildconf: ["DX11", "DX11-AVX"]
+
+    env:
+      # Read by src/xrCore/build_identity.ps1
+      CANARY_NUMBER: ${{ github.run_number }}
+      XR_BUILD_BRANCH: ${{ inputs.build_ref }}
 
     steps:
     - name: Configure Pagefile
@@ -34,10 +67,10 @@ jobs:
         maximum-size: 8GB
         disk-root: "C:"
 
-    - name: Checkout repo
+    - name: Checkout ${{ needs.resolve.outputs.sha }}
       uses: actions/checkout@v4
       with:
-        ref: ${{ inputs.build_ref }}
+        ref: ${{ needs.resolve.outputs.sha }}
 
     - name: Init submodules
       uses: snickerbockers/submodules-init@v4
@@ -51,72 +84,146 @@ jobs:
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: msbuild /p:Configuration=${{matrix.buildconf}} ${{env.SOLUTION_FILE_PATH}}
 
+    # Ship whatever the build put in bin_dbg. The scheduler needs tbb12.dll only;
+    # the tbbmalloc allocator and the legacy tbb.dll must never ship.
+    - name: Collect binaries
+      run: |
+        $bin = "./_build/_game/bin_dbg"
+        $banned = Get-ChildItem -Path $bin -File | Where-Object { $_.Name -like "tbbmalloc*.dll" -or $_.Name -eq "tbb.dll" }
+        if ($banned) { throw "Banned TBB DLLs in build output: $($banned.Name -join ', ')" }
+        New-Item -ItemType Directory -Force -Path ./stage/bin, ./stage/pdb | Out-Null
+        $bins = Get-ChildItem -Path $bin -File | Where-Object { $_.Extension -in ".exe", ".dll" }
+        $pdbs = Get-ChildItem -Path $bin -File -Filter *.pdb
+        if (-not ($bins | Where-Object Extension -eq ".exe")) { throw "No .exe in $bin" }
+        if (-not $pdbs) { throw "No .pdb in $bin" }
+        $bins | Copy-Item -Destination ./stage/bin
+        $pdbs | Copy-Item -Destination ./stage/pdb
+        Get-ChildItem -Recurse ./stage | Select-Object FullName, Length
+
     - name: Upload binaries
       uses: actions/upload-artifact@v4.6.0
       with:
-        name: ${{matrix.buildconf}}_binaries
-        path: |
-          ./_build/_game/bin_dbg/*.exe
-          ./_build/_game/bin_dbg/tbb12.dll
-          ./_build/_game/bin_dbg/tbbmalloc.dll
-          ./_build/_game/bin_dbg/tbbmalloc_proxy.dll
+        name: ${{matrix.buildconf}}_canary_bin
+        path: ./stage/bin/
         if-no-files-found: "error"
         retention-days: 90
 
-    - name: Upload PDBs
+    - name: Upload PDB
       uses: actions/upload-artifact@v4.6.0
       with:
-        name: ${{matrix.buildconf}}_pdb
-        path: ./_build/_game/bin_dbg/*.pdb
+        name: ${{matrix.buildconf}}_canary_pdb
+        path: ./stage/pdb/
         if-no-files-found: "error"
         retention-days: 90
 
   release:
     name: release-job
-    needs: build
+    needs: [resolve, build]
     runs-on: ubuntu-latest
 
     steps:
-    - name: Download binaries
+    # Full history and tags, for the changelog.
+    - name: Checkout ${{ needs.resolve.outputs.sha }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.resolve.outputs.sha }}
+        fetch-depth: 0
+
+    - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
-        pattern: "*_binaries"
-        path: ./release-assets/bin
-        merge-multiple: true
+        pattern: "*_canary_*"
+        path: ./artifacts
 
-    - name: Download PDBs
-      uses: actions/download-artifact@v4
-      with:
-        pattern: "*_pdb"
-        path: ./release-assets/pdb
-        merge-multiple: true
-
-    - name: Determine tag
-      id: tag
+    # Merge both configurations into one binaries zip and one PDB zip. Files
+    # shared by both builds (tbb12.dll) must be identical.
+    - name: Package release assets
       run: |
-        SAFE_REF=$(echo "${{ inputs.build_ref }}" | tr '/' '-')
-        if [ -n "${{ inputs.release_tag }}" ]; then
-          echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
-        else
-          echo "tag=tbb-test-${SAFE_REF}-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        set -euo pipefail
+        merge() {
+          local kind=$1 dest=$2
+          mkdir -p "$dest"
+          for f in ./artifacts/*_canary_"$kind"/*; do
+            name=$(basename "$f")
+            if [ -e "$dest/$name" ]; then
+              cmp -s "$f" "$dest/$name" || { echo "::error::$name differs between configurations"; exit 1; }
+            else
+              cp "$f" "$dest/"
+            fi
+          done
+        }
+        merge bin ./stage/bin
+        merge pdb ./stage/pdb
+        banned=$(find ./stage/bin -maxdepth 1 -type f \( -iname 'tbbmalloc*.dll' -o -iname 'tbb.dll' \) -printf '%f\n')
+        if [ -n "$banned" ]; then
+          echo "::error::Banned TBB DLLs in release assets: $banned"; exit 1
+        fi
+        mkdir -p ./release-assets
+        (cd ./stage/bin && zip -9 "../../release-assets/${RELEASE_TAG}_binaries.zip" *)
+        (cd ./stage/pdb && zip -9 "../../release-assets/${RELEASE_TAG}_pdb.zip" *)
+        for z in ./release-assets/*.zip; do echo "$z:"; unzip -Z1 "$z" | sed 's/^/  /'; done
+
+    - name: Generate release notes
+      env:
+        BUILD_REF: ${{ inputs.build_ref }}
+        SHA: ${{ needs.resolve.outputs.sha }}
+        RUN_NUMBER: ${{ github.run_number }}
+      run: |
+        set -euo pipefail
+
+        # CANARY.md section whose "## " heading is exactly build_ref, up to the
+        # next "## " heading. Includes its "### Release notes" subsection.
+        if [ ! -f CANARY.md ]; then
+          echo "::error::CANARY.md not found at $SHA"; exit 1
+        fi
+        awk -v h="## $BUILD_REF" '
+          { sub(/\r$/, "") }
+          $0 == h { found = 1; print; next }
+          found && /^## / { exit }
+          found { print }
+        ' CANARY.md > section.md
+        if [ ! -s section.md ]; then
+          echo "::error::CANARY.md at $SHA has no section with heading \"## $BUILD_REF\". Add one before releasing."
+          exit 1
         fi
 
-    - name: Zip combined binaries
-      run: |
-        cd release-assets/bin
-        zip -r ../tbb_test_binaries.zip .
+        # Changelog base: the newest canary-<n> tag from an earlier run, else the
+        # merge base with upstream.
+        prev=$(git tag --list 'canary-*' \
+          | grep -E '^canary-[0-9]+$' \
+          | awk -F- -v run="$RUN_NUMBER" '$2 < run { print $2 }' \
+          | sort -n | tail -1)
+        if [ -n "$prev" ]; then
+          base="canary-$prev"
+          base_desc="$base"
+        else
+          git fetch --no-tags "$UPSTREAM_URL" "+refs/heads/$UPSTREAM_BRANCH:refs/remotes/upstream/$UPSTREAM_BRANCH"
+          base=$(git merge-base "refs/remotes/upstream/$UPSTREAM_BRANCH" "$SHA") || {
+            echo "::error::No previous canary tag and no merge base with upstream $UPSTREAM_BRANCH"; exit 1
+          }
+          base_desc="upstream \`$UPSTREAM_BRANCH\` merge base \`$(git rev-parse --short=7 "$base")\`"
+        fi
 
-    - name: Zip combined PDBs
-      run: |
-        cd release-assets/pdb
-        zip -r ../tbb_test_pdb.zip .
+        {
+          cat section.md
+          echo
+          echo "## Changelog"
+          echo
+          echo "Commits since $base_desc:"
+          echo
+          git log --oneline --no-decorate "$base..$SHA" | sed 's/^/- /'
+        } > release-notes.md
+        cat release-notes.md
 
     - name: Publish release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.tag.outputs.tag }}
-        name: "TBB test build ${{ steps.tag.outputs.tag }} (${{ inputs.build_ref }})"
+        tag_name: ${{ env.RELEASE_TAG }}
+        target_commitish: ${{ needs.resolve.outputs.sha }}
+        name: Canary ${{ github.run_number }} (${{ inputs.build_ref }} @ ${{ needs.resolve.outputs.short_sha }})
+        body_path: release-notes.md
         prerelease: true
+        fail_on_unmatched_files: true
         files: |
-          ./release-assets/tbb_test_binaries.zip
-          ./release-assets/tbb_test_pdb.zip
+          release-assets/${{ env.RELEASE_TAG }}_binaries.zip
+          release-assets/${{ env.RELEASE_TAG }}_pdb.zip
