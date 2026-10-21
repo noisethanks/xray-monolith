@@ -1,15 +1,36 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/themrdemonized/xray-monolith)
+# xray-monolith-canary
+
+Research and testing for fixes, features, and enhancements to the xray-monolith engine, with the goal of upstream integration.
+
+**This build is experimental.** Every release is the exact build I run in my own GAMMA playthrough, so it has seen real play time before anyone else gets it. Your setup may differ from mine, so use it at your own risk.
+- **Installation:** see the release notes for each build, since steps may change between releases
+- **Reporting issues:** [GitHub Issues](https://github.com/noisethanks/xray-monolith-canary/issues) or the [G.A.M.M.A server thread](https://discord.com/channels/912320241713958912/1552579813028528198), with your crash log and the build version
+- **Going back:** reinstall the latest mainline MT build
+- **What's in progress:** [Task Board](https://github.com/users/noisethanks/projects/5/views/1)
 
 ## Upstream Contributions
+
 ### Features
-- Texture eviction: [#592](https://github.com/themrdemonized/xray-monolith/pull/592)
+- Texture eviction ([#592](https://github.com/themrdemonized/xray-monolith/pull/592)): releases unused textures from GPU memory, basic implementation on a frame clock 
+
 ### Fixes
-- EvictStalledTextures() race condition [#604](https://github.com/themrdemonized/xray-monolith/pull/604)
-- Fix: share the open-file-tracking lock across calls [#707](https://github.com/themrdemonized/xray-monolith/pull/707)
-- Fix: snapshot m_textures under creationGuard before iterating [#706](https://github.com/themrdemonized/xray-monolith/pull/706)
-- Fix: real join + lock for CTextureDescrMngr's THM loader threads [#705](https://github.com/themrdemonized/xray-monolith/pull/705)
-- Fix use-after-free in vid_modes_string (get_resolutions) [#698](https://github.com/themrdemonized/xray-monolith/pull/698)
-- Fix/thread safety bullet particle [#660](https://github.com/themrdemonized/xray-monolith/pull/660)
+- Race condition in EvictStalledTextures() ([#604](https://github.com/themrdemonized/xray-monolith/pull/604))
+- Shared open-file-tracking lock across calls ([#707](https://github.com/themrdemonized/xray-monolith/pull/707))
+- Snapshot m_textures under creationGuard before iterating ([#706](https://github.com/themrdemonized/xray-monolith/pull/706))
+- Proper join and lock for CTextureDescrMngr's THM loader threads ([#705](https://github.com/themrdemonized/xray-monolith/pull/705))
+- Use-after-free in vid_modes_string (get_resolutions) ([#698](https://github.com/themrdemonized/xray-monolith/pull/698))
+- Thread safety in bullet particles ([#660](https://github.com/themrdemonized/xray-monolith/pull/660))
+
+## Support Development
+
+Your support helps me dedicate more time to R&D.
+
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/noisethanks) [![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/O7J021W17A)
+
+
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/themrdemonized/xray-monolith)
+
 # STALKER-Anomaly-modded-exes
 
 Here is list of exe files for Anomaly 1.5.3 that contains all engine patches by community required for some advanced mods to work.
