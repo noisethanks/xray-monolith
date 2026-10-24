@@ -46,7 +46,7 @@ void CRenderTarget::phase_nightvision()
 	//Set geometry
 	RCache.set_Geometry(g_combine);
 	RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
-	
+
 #if defined(USE_DX10) || defined(USE_DX11)
 	HW.pContext->CopyResource(rt_Generic_0->pTexture->surface_get(), dest_rt->pTexture->surface_get());
 #endif
