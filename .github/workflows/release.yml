@@ -52,7 +52,7 @@ jobs:
 
     strategy:
       matrix:
-        buildconf: ["DX11", "DX11-AVX"]
+        buildconf: ["DX10", "DX10-AVX", "DX11", "DX11-AVX"]
 
     env:
       # Read by src/xrCore/build_identity.ps1
@@ -116,9 +116,99 @@ jobs:
         if-no-files-found: "error"
         retention-days: 90
 
+  # Engine support data and the MO2 shader mod, built from the same SHA as the
+  # executables. The db0 replaces Modded Exes' 00_modded_exes_gamedata.db0, so
+  # users don't need a Modded Exes install first. The shader mod is built only
+  # when the ref has packaging/shader-files.txt.
+  package-data:
+    name: package-data-job
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout ${{ needs.resolve.outputs.sha }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.resolve.outputs.sha }}
+
+    - name: Pack gamedata into db archives
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $compressor = Join-Path $PWD 'stage/compressor'
+        # Tracked gamedata only, without dotfiles (.vscode and the like).
+        $files = @(git -c core.quotepath=false ls-files -- gamedata | Where-Object { $_ -notmatch '(^|/)\.' })
+        if ($LASTEXITCODE -ne 0 -or !$files.Count) { throw 'Cannot enumerate tracked gamedata' }
+        foreach ($f in $files) {
+          $dest = Join-Path $compressor $f
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+          Copy-Item -LiteralPath $f -Destination $dest
+        }
+        foreach ($name in 'xrCompress.exe', 'xrCore.dll', 'build_patch.ltx') {
+          Copy-Item -LiteralPath "compressor/$name" -Destination $compressor
+        }
+        Write-Host "Packing $($files.Count) gamedata files"
+        $p = Start-Process -FilePath (Join-Path $compressor 'xrCompress.exe') `
+          -ArgumentList @('gamedata', '-ltx', 'build_patch.ltx', '-pack', '-strong', '-1024', '-db') `
+          -WorkingDirectory $compressor -NoNewWindow -Wait -PassThru
+        if ($p.ExitCode -ne 0) { throw "xrCompress failed with exit code $($p.ExitCode)" }
+        $archives = @(Get-ChildItem -LiteralPath $compressor -File | Where-Object Name -match '^gamedata\.db[0-9]+$')
+        if (!$archives -or (Get-Item (Join-Path $compressor 'gamedata.db0')).Length -eq 0) {
+          throw 'xrCompress did not produce gamedata.db0'
+        }
+        $mods = New-Item -ItemType Directory -Force -Path ./stage/data/db/mods
+        foreach ($a in $archives) {
+          # Upstream's name, so extracting replaces a Modded Exes install's archive.
+          $null = $a.Name -match '^gamedata\.db([0-9]+)$'
+          Copy-Item -LiteralPath $a.FullName -Destination (Join-Path $mods "00_modded_exes_gamedata.db$($Matches[1])")
+        }
+        Get-ChildItem -Recurse ./stage/data | Select-Object FullName, Length
+
+    - name: Build MO2 shader mod
+      id: shaders
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $manifest = 'packaging/shader-files.txt'
+        if (!(Test-Path -LiteralPath $manifest)) {
+          Write-Host "No $manifest at this ref, skipping the shader mod"
+          exit 0
+        }
+        $entries = @(Get-Content -LiteralPath $manifest | ForEach-Object { $_.Trim().Replace('\', '/') } |
+          Where-Object { $_ -and !$_.StartsWith('#') })
+        if (!$entries.Count) { throw "$manifest lists no files" }
+        $root = Join-Path $PWD 'stage/shaders'
+        foreach ($rel in $entries) {
+          if (!$rel.StartsWith('gamedata/')) { throw "Shader manifest entry outside gamedata: $rel" }
+          if (!(Test-Path -LiteralPath $rel -PathType Leaf)) { throw "Shader manifest entry missing: $rel" }
+          $dest = Join-Path $root $rel
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+          Copy-Item -LiteralPath $rel -Destination $dest
+        }
+        # Zip root holds gamedata/, which is the layout MO2 installs directly.
+        New-Item -ItemType Directory -Force -Path ./stage/shaders-zip | Out-Null
+        Compress-Archive -Path (Join-Path $root 'gamedata') -DestinationPath ./stage/shaders-zip/shaders_mo2.zip
+        "built=true" >> $env:GITHUB_OUTPUT
+
+    - name: Upload db archives
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: canary_data_db
+        path: ./stage/data/
+        if-no-files-found: "error"
+        retention-days: 90
+
+    - name: Upload shader mod
+      if: steps.shaders.outputs.built == 'true'
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: canary_data_shaders
+        path: ./stage/shaders-zip/shaders_mo2.zip
+        if-no-files-found: "error"
+        retention-days: 90
+
   release:
     name: release-job
-    needs: [resolve, build]
+    needs: [resolve, build, package-data]
     runs-on: ubuntu-latest
 
     steps:
@@ -135,8 +225,15 @@ jobs:
         pattern: "*_canary_*"
         path: ./artifacts
 
-    # Merge both configurations into one binaries zip and one PDB zip. Files
-    # shared by both builds (tbb12.dll) must be identical.
+    - name: Download data artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "canary_data_*"
+        path: ./artifacts
+
+    # Merge all configurations into one game zip (bin/ and db/mods/, extracted
+    # over the Anomaly folder) and one PDB zip. Files shared by several builds
+    # (tbb12.dll) must be identical. The MO2 shader mod ships as its own zip.
     - name: Package release assets
       run: |
         set -euo pipefail
@@ -158,9 +255,16 @@ jobs:
         if [ -n "$banned" ]; then
           echo "::error::Banned TBB DLLs in release assets: $banned"; exit 1
         fi
-        mkdir -p ./release-assets
-        (cd ./stage/bin && zip -9 "../../release-assets/${RELEASE_TAG}_binaries.zip" *)
+        [ -f ./stage/bin/tbb12.dll ] || { echo "::error::tbb12.dll missing from release binaries"; exit 1; }
+        mkdir -p ./stage/game/bin ./release-assets
+        cp ./stage/bin/* ./stage/game/bin/
+        cp -r ./artifacts/canary_data_db/db ./stage/game/
+        [ -f ./stage/game/db/mods/00_modded_exes_gamedata.db0 ] || { echo "::error::db0 missing"; exit 1; }
+        (cd ./stage/game && zip -9 -r "../../release-assets/${RELEASE_TAG}_game.zip" bin db)
         (cd ./stage/pdb && zip -9 "../../release-assets/${RELEASE_TAG}_pdb.zip" *)
+        if [ -f ./artifacts/canary_data_shaders/shaders_mo2.zip ]; then
+          cp ./artifacts/canary_data_shaders/shaders_mo2.zip "./release-assets/${RELEASE_TAG}_shaders_mo2.zip"
+        fi
         for z in ./release-assets/*.zip; do echo "$z:"; unzip -Z1 "$z" | sed 's/^/  /'; done
 
     - name: Generate release notes
@@ -215,6 +319,5 @@ jobs:
         body_path: release-notes.md
         prerelease: true
         fail_on_unmatched_files: true
-        files: |
-          release-assets/${{ env.RELEASE_TAG }}_binaries.zip
-          release-assets/${{ env.RELEASE_TAG }}_pdb.zip
+        # Game and PDB zips always, the shader mod zip when the ref has one.
+        files: release-assets/*.zip
