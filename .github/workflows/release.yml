@@ -52,7 +52,7 @@ jobs:
 
     strategy:
       matrix:
-        buildconf: ["DX10", "DX10-AVX", "DX11", "DX11-AVX"]
+        buildconf: ["DX11", "DX11-AVX"]
 
     env:
       # Read by src/xrCore/build_identity.ps1
