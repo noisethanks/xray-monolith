@@ -1,0 +1,46 @@
+name: tests-marshal
+
+on:
+  push:
+    branches-ignore: [ "all-in-one-vs2022-wpo", "all-in-one-vs2022-wpo-mt" ]
+    paths:
+      - "src/3rd party/lua-extensions/lmarshal.*"
+      - "src/3rd party/luajit-2/**"
+      - "tests/marshal/**"
+      - ".github/workflows/tests-marshal.yml"
+  pull_request:
+    paths:
+      - "src/3rd party/lua-extensions/lmarshal.*"
+      - "src/3rd party/luajit-2/**"
+      - "tests/marshal/**"
+      - ".github/workflows/tests-marshal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-vm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache LuaJIT builds
+        uses: actions/cache@v4
+        with:
+          path: |
+            tests/marshal/work/lj21
+            tests/marshal/work/lj21nogc
+          key: luajit-${{ hashFiles('tests/marshal/run.sh') }}
+
+      - name: Run cross-VM matrix
+        run: tests/marshal/run.sh
+
+      - name: Upload matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marshal-matrix
+          path: tests/marshal/work/matrix.txt
+          if-no-files-found: ignore
