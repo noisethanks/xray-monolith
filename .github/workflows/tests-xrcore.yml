@@ -36,10 +36,27 @@ jobs:
         with:
           msbuild-architecture: x64
 
+      # Compiler errors and test failures are re-emitted as annotations so they show
+      # on the run page and through the checks API without opening the raw log.
       - name: Build xrCore and tests
-        shell: cmd
-        run: msbuild src\tests\xrCore_tests\xrCore_tests.vcxproj /m /nologo /v:minimal /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /p:SolutionDir=%GITHUB_WORKSPACE%\src\
+        shell: pwsh
+        run: |
+          msbuild src\tests\xrCore_tests\xrCore_tests.vcxproj /m /nologo /v:minimal `
+            /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 "/p:SolutionDir=$env:GITHUB_WORKSPACE\src\" `
+            "/flp:logfile=build.log;verbosity=normal"
+          $rc = $LASTEXITCODE
+          Select-String -Path build.log -Pattern ': (fatal )?error [A-Z]+[0-9]+' |
+            Select-Object -ExpandProperty Line -Unique -First 40 |
+            ForEach-Object { "::error::$($_.Trim())" }
+          exit $rc
 
       - name: Run tests
-        shell: cmd
-        run: _build\_game\bin_dbg\x64\${{ matrix.configuration }}\xrCore_tests.exe
+        shell: pwsh
+        run: |
+          & "_build\_game\bin_dbg\x64\${{ matrix.configuration }}\xrCore_tests.exe" | Tee-Object -FilePath tests.log
+          $rc = $LASTEXITCODE
+          Select-String -Path tests.log -Pattern 'FAIL|info:' |
+            Select-Object -ExpandProperty Line -First 40 |
+            ForEach-Object { if ($_ -match 'FAIL') { "::error::$($_.Trim())" } else { "::notice::$($_.Trim())" } }
+          Get-Content tests.log -Tail 1 | ForEach-Object { "::notice::$_" }
+          exit $rc
