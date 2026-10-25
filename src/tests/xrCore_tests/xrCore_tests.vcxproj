@@ -58,6 +58,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="link_stubs.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="test_xrMemory.cpp" />
   </ItemGroup>
