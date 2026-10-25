@@ -163,7 +163,31 @@ XRTEST(xr_realloc_shrink_then_grow_zeroes_tail)
 				continue;
 			CHECK(all_bytes(p, small, 0xAB));
 			CHECK(all_bytes(p + small, big - small, 0));
+			if (!all_bytes(p + small, big - small, 0))
+			{
+				size_t first = small, dirty = 0;
+				while (first < big && p[first] == 0)
+					++first;
+				for (size_t i = small; i < big; ++i)
+					dirty += p[i] != 0;
+				INFO("big %zu small %zu: first stale byte at %zu, %zu stale bytes\n", big, small, first, dirty);
+			}
 			xr_free(p);
+		}
+}
+
+// Diagnostic: what _aligned_msize reports after an in place shrink. xrMemory's
+// realloc zeroes from this value, so anything above the requested size leaves stale
+// bytes in the next growth.
+XRTEST(diag_aligned_msize_after_shrink)
+{
+	for (size_t big : {64, 1000, 4096, 100000})
+		for (size_t small : {1, 3, 10, 17, 63})
+		{
+			void* p = _aligned_malloc(big, 16);
+			void* q = _aligned_realloc(p, small, 16);
+			INFO("big %zu small %zu: moved %d, _aligned_msize %zu\n", big, small, int(p != q), _aligned_msize(q, 16, 0));
+			_aligned_free(q);
 		}
 }
 

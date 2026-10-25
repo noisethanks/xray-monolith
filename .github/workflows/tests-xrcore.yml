@@ -56,7 +56,7 @@ jobs:
           & "_build\_game\bin_dbg\x64\${{ matrix.configuration }}\xrCore_tests.exe" | Tee-Object -FilePath tests.log
           $rc = $LASTEXITCODE
           Select-String -Path tests.log -Pattern 'FAIL|info:' |
-            Select-Object -ExpandProperty Line -First 40 |
+            Select-Object -ExpandProperty Line -First 45 |
             ForEach-Object { if ($_ -match 'FAIL') { "::error::$($_.Trim())" } else { "::notice::$($_.Trim())" } }
           Get-Content tests.log -Tail 1 | ForEach-Object { "::notice::$_" }
           exit $rc
