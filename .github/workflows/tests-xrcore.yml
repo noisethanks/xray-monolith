@@ -1,0 +1,45 @@
+name: tests-xrcore
+
+on:
+  push:
+    branches-ignore: [ "all-in-one-vs2022-wpo", "all-in-one-vs2022-wpo-mt" ]
+    paths:
+      - "src/xrCore/**"
+      - "src/tests/xrCore_tests/**"
+      - "src/Common.props"
+      - ".github/workflows/tests-xrcore.yml"
+  pull_request:
+    paths:
+      - "src/xrCore/**"
+      - "src/tests/xrCore_tests/**"
+      - "src/Common.props"
+      - ".github/workflows/tests-xrcore.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  xrcore-tests:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [ "Release", "Release-AVX" ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Build xrCore and tests
+        shell: cmd
+        run: msbuild src\tests\xrCore_tests\xrCore_tests.vcxproj /m /nologo /v:minimal /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /p:SolutionDir=%GITHUB_WORKSPACE%\src\
+
+      - name: Run tests
+        shell: cmd
+        run: _build\_game\bin_dbg\x64\${{ matrix.configuration }}\xrCore_tests.exe
