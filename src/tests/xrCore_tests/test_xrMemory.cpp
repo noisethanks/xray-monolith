@@ -146,8 +146,10 @@ XRTEST(xr_realloc_grow_preserves_and_zeroes_tail)
 		}
 }
 
-// Shrinking usually stays in place, so the dirty bytes past the new size are still
-// there when the block grows again. They must come back zeroed.
+// Shrinking can stay in place, so the dirty bytes past the new size are still there
+// when the block grows again. They must come back zeroed. Under the UCRT a 64 byte
+// block shrinks in place with _aligned_msize still reporting 64, which is how this
+// test caught the stale bytes fixed in xrMemory_subst_msvc.cpp.
 XRTEST(xr_realloc_shrink_then_grow_zeroes_tail)
 {
 	for (size_t big : {64, 1000, 4096, 100000})
@@ -173,21 +175,6 @@ XRTEST(xr_realloc_shrink_then_grow_zeroes_tail)
 				INFO("big %zu small %zu: first stale byte at %zu, %zu stale bytes\n", big, small, first, dirty);
 			}
 			xr_free(p);
-		}
-}
-
-// Diagnostic: what _aligned_msize reports after an in place shrink. xrMemory's
-// realloc zeroes from this value, so anything above the requested size leaves stale
-// bytes in the next growth.
-XRTEST(diag_aligned_msize_after_shrink)
-{
-	for (size_t big : {64, 1000, 4096, 100000})
-		for (size_t small : {1, 3, 10, 17, 63})
-		{
-			void* p = _aligned_malloc(big, 16);
-			void* q = _aligned_realloc(p, small, 16);
-			INFO("big %zu small %zu: moved %d, _aligned_msize %zu\n", big, small, int(p != q), _aligned_msize(q, 16, 0));
-			_aligned_free(q);
 		}
 }
 
